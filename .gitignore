@@ -1,0 +1,4 @@
+notes.txt
+*.ipynb
+*pycache*
+.DS_Store
