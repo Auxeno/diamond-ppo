@@ -4,7 +4,7 @@ Configuration for diamond PPO.
 
 config = {
     "network": {
-        "hidden_sizes": (64, 64),
+        "hidden_sizes": [64, 64],
         "hidden_activation": "relu"
     },
     "ppo": {
