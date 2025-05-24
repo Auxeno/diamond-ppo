@@ -16,6 +16,7 @@ class PPOConfig:
     num_epochs: int = 4
     num_minibatches: int = 8
     gae_lambda: float = 0.95
+    advantage_norm: bool = True
     network_hidden_dim: int = 64
     network_activation_fn: Type[torch.nn.Module] = torch.nn.Tanh
     device: torch.device = torch.device("cpu")
@@ -123,8 +124,15 @@ class PPO:
         self.current_observations = next_observations
         self.rollout_count +=1 
 
-    def calculate_advantage(self, rewards, terminations, truncations, values):
-        pass
+    def calculate_advantage(self, rewards, terminations, truncations, values, next_values):
+        """Calculate advantage with generalised advantage estimation."""
+        advantages = torch.zeros_like(rewards, device=self.config.device)
+        advantage = 0.0
+        for idx in reversed(range(self.config.rollout_steps)):
+            non_termination, non_truncation = 1.0 - terminations[idx], 1.0 - truncations[idx]
+            delta = rewards[idx] + self.config.gamma * next_values[idx] * non_termination - values[idx]
+            advantages[idx] = advantage = delta + self.config.gamma * self.config.gae_lambda * non_termination * non_truncation * advantage
+        return advantages
 
     def learn(self):
         # Unpack experience from, then clear buffer
@@ -144,10 +152,14 @@ class PPO:
             values = self.network.critic(observations).squeeze(-1)
             next_values = self.network.critic(next_observations).squeeze(-1)
 
-            # Calculate advantages
-            advantages = self.calculate_advantage(
-                rewards, terminations, truncations, values, next_values
-            )
+        # Calculate advantages
+        advantages = self.calculate_advantage(
+            rewards, terminations, truncations, values, next_values
+        )
+
+        # Normalise advantages
+        if self.config.advantage_norm:
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
     def train(self):
         pass
