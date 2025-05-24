@@ -152,14 +152,62 @@ class PPO:
             values = self.network.critic(observations).squeeze(-1)
             next_values = self.network.critic(next_observations).squeeze(-1)
 
-        # Calculate advantages
+        # Calculate advantages and returns
         advantages = self.calculate_advantage(
             rewards, terminations, truncations, values, next_values
         )
+        returns = values + advantages
 
         # Normalise advantages
         if self.config.advantage_norm:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
+        # Merge step and environment dims for each tensor
+        flatten = lambda x: x.view(-1, *x.shape[2:])
+        observations, log_probs, actions, advantages, returns, values = (
+            map(flatten, [observations, log_probs, actions, advantages, returns, values])
+        )
+
+        # Generate indices
+        batch_size = self.rollout_steps * self.num_envs
+        minibatch_size = batch_size // self.num_minibatches
+        perms = np.stack([np.random.permutation(batch_size) for _ in range(self.num_epochs)])
+        indices = perms.reshape(self.num_epochs, self.num_minibatches, minibatch_size)
+
+        # PPO learning steps
+        for b_indices in indices:
+            for mb_indices in b_indices:
+                # Forward pass with current parameters
+                new_logits, new_values = self.network(observations)
+
+                # PPO policy loss
+                dist = torch.distributions.Categorical(logits=new_logits)
+                new_log_probs = dist.log_prob(actions[mb_indices])
+                ratio = (new_log_probs - log_probs[mb_indices]).exp()
+                loss_surrogate_unclipped = -advantages[mb_indices] * ratio
+                loss_surrogate_clipped = -advantages[mb_indices] * \
+                    torch.clamp(ratio, 1.0 - self.config.ppo_clip, 1.0 + self.config.ppo_clip)
+                loss_policy = torch.max(loss_surrogate_unclipped, loss_surrogate_clipped).mean()
+
+                # Value loss
+                loss_value = torch.nn.functional.mse_loss(new_values.squeeze(1), returns[mb_indices])
+
+                # Entropy loss
+                entropy = dist.entropy().mean()
+
+                # Combine and weight losses
+                loss = (
+                    loss_policy +
+                    self.config.value_loss_weight * loss_value +
+                    -self.config.entropy_beta * entropy
+                )
+
+                # Network update and global grad norm clip
+                self.optimizer.zero_grad()
+                loss.backward()
+                nn.utils.clip_grad_norm_(self.network.parameters(), self.config.grad_norm_clip)
+                self.optimizer.step()
+
 
     def train(self):
         pass
