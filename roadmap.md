@@ -2,10 +2,10 @@
 
 ### Document
 - Add lots  more comments and documentation so code can be a much clearer reference for people learning
+- Config in particular
+- check dict type is okay instead of Dict
 
 ### Nice readme
-- Basic usage guide
-- Swapping out network
 - Swapping environment to pixel-based
 - Shared policy and value functions
 
@@ -30,6 +30,9 @@
 - Verify custom logs logging works
 - Logger should also be able to log other info like learning statistics (kl div, losses)
 - Should be able to make nice graphs from training logs
+
+### Check pixel obs work
+- Actually check this (should be fine)
 
 ### Check `np.as_array`
 - When unpacking experience list, does np.as_array outperform np.array?
