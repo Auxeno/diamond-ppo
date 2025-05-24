@@ -85,7 +85,7 @@ class PPO:
         self.logger = Logger(
             config.total_steps, config.num_envs, config.rollout_steps
         )
-        self.timer = None
+        self.timer = Timer()
         self.checkpointer = None
         self.device = config.device
         self.config = config
