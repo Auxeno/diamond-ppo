@@ -64,7 +64,9 @@ class PPO:
     def __init__(
         self,
         env_fn: callable,
-        config: PPOConfig = PPOConfig()
+        *,
+        config: PPOConfig = PPOConfig(),
+        custom_network: nn.Module | None = None
     ):
         # Create vectorised environments
         self.envs = gym.vector.SyncVectorEnv(
@@ -74,12 +76,15 @@ class PPO:
         )
 
         # Create network and optimiser
-        self.network = ActorCriticNetwork(
-            np.prod(self.envs.single_observation_space.shape),
-            self.envs.single_action_space.n,
-            hidden_dim=config.network_hidden_dim,
-            activation_fn=config.network_activation_fn
-        ).to(config.device)
+        if custom_network is not None:
+            self.network = custom_network.to(config.device)
+        else:
+            self.network = ActorCriticNetwork(
+                np.prod(self.envs.single_observation_space.shape),
+                self.envs.single_action_space.n,
+                hidden_dim=config.network_hidden_dim,
+                activation_fn=config.network_activation_fn
+            ).to(config.device)
         self.optimizer = torch.optim.Adam(
             self.network.parameters(), lr=config.learning_rate
         )
