@@ -49,3 +49,7 @@
 
 ### Check `np.as_array`
 - When unpacking experience list, does np.as_array outperform np.array?
+
+### Test performance with scripted torch
+- Replace network with one that has jit compiled methods that go brr
+- Check overall speedups
