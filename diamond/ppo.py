@@ -51,7 +51,7 @@ class ActorCriticNetwork(nn.Module):
             nn.Linear(hidden_dim, 1)
         )
         
-    def forward(self, x):
+    def forward(self, x) -> tuple[torch.Tensor]:
         return self.actor(x), self.critic(x)
 
 class PPO:
@@ -132,7 +132,14 @@ class PPO:
 
         return experience
 
-    def calculate_advantage(self, rewards, terminations, truncations, values, next_values):
+    def calculate_advantage(
+        self, 
+        rewards: torch.Tensor, 
+        terminations: torch.Tensor, 
+        truncations: torch.Tensor, 
+        values: torch.Tensor, 
+        next_values: torch.Tensor
+    ) -> torch.Tensor:
         """Calculate advantage with generalised advantage estimation."""
         advantages = torch.zeros_like(rewards, device=self.config.device)
         advantage = 0.0
@@ -142,7 +149,7 @@ class PPO:
             advantages[idx] = advantage = delta + self.config.gamma * self.config.gae_lambda * non_termination * non_truncation * advantage
         return advantages
 
-    def learn(self, experience: list[list[np.ndarray]]):
+    def learn(self, experience: list[list[np.ndarray]]) -> None:
         # Unpack experience
         observations, next_observations, actions, rewards, terminations, truncations = zip(*experience)
         observations = torch.as_tensor(np.array(observations), dtype=torch.float32, device=self.device)
@@ -215,7 +222,7 @@ class PPO:
                 nn.utils.clip_grad_norm_(self.network.parameters(), self.config.grad_norm_clip)
                 self.optimizer.step()
 
-    def train(self):
+    def train(self) -> None:
         """Train PPO agent."""
         # Initial reset
         self.current_observations, _ = self.envs.reset()
