@@ -4,10 +4,6 @@
 - Checkpointer should basically just save model weights to disk periodically
 - Logic to do this can be internal for max encapsulation
 
-### Add timer
-- Dig out timer from your old code, lets you separately profile different parts of the code
-- Also prints logs nicely after a training run
-
 ### Verify
 - Verify GAE calculation is correct compared to CleanRL's. If it is that's awesome
 
