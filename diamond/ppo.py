@@ -131,7 +131,6 @@ class PPO:
             # Log transition
             if self.logger is not None:
                 self.logger.log(rewards, terminations, truncations)
-                self.logger.print_logs()
 
         # Store last observations for start of next rollout
         self.current_observations = next_observations

@@ -18,17 +18,19 @@ class Logger:
         window_size: int = 20,
         print_every: int = 5,
         num_checkpoints: int = 20,
-    ) -> None:
+        verbose: bool = True
+    ):
 
-        # Fixed attributes
+        # Fixed state
         self.total_steps = total_steps
         self.num_envs = num_envs
         self.rollout_steps = rollout_steps
         self.window_size = window_size
         self.print_every = print_every
+        self.verbose = verbose
         self.checkpoints = self._make_checkpoints(num_checkpoints)
 
-        # Running counters
+        # Running state
         self.current_step = 0
         self.current_episode = 1
         self.current_returns = np.zeros(num_envs, np.float32)
@@ -50,6 +52,7 @@ class Logger:
             window_size=self.window_size,
             print_every=self.print_every,
             num_checkpoints=len(self.checkpoints),
+            verbose=self.verbose
         )
 
     def log(
@@ -77,10 +80,14 @@ class Logger:
 
         self.custom_logs.update(custom_logs)
 
+        if self.verbose:
+            self.print_logs()
+
     def print_logs(self) -> None:
         """Print a progress row when the interval or checkpoint is hit."""
         if self.current_step in self.checkpoints:
-            print()
+            if self._header_printed:
+                print()
             self.last_checkpoint_time = time.time()
             self.last_checkpoint_step = self.current_step
 
