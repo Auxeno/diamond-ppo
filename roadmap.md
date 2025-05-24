@@ -1,11 +1,5 @@
 ## PPO Implementation Roadmap
 
-### Build logger
-- Logger should record episode info, primarily
-- Logger should also be able to log other info like learning statistics (kl div, losses)
-- Should be able to print during training to console
-- Should be able to make nice graphs from training logs
-
 ### Build checkpointer
 - Checkpointer should basically just save model weights to disk periodically
 - Logic to do this can be internal for max encapsulation
@@ -46,6 +40,10 @@
 - Currently lean towards no, it's not where PPO's strength is
 
 ---
+
+### Improve logger
+- Logger should also be able to log other info like learning statistics (kl div, losses)
+- Should be able to make nice graphs from training logs
 
 ### Check `np.as_array`
 - When unpacking experience list, does np.as_array outperform np.array?
