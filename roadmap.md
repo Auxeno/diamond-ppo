@@ -44,3 +44,8 @@
 ### Continuous?
 - Consider whether we want to eventually support continuous action spaces
 - Currently lean towards no, it's not where PPO's strength is
+
+---
+
+### Check `np.as_array`
+- When unpacking experience list, does np.as_array outperform np.array?
