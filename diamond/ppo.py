@@ -2,6 +2,7 @@ from typing import Type
 from dataclasses import dataclass
 import numpy as np
 import torch
+from torch.distributions import Categorical
 from torch import nn
 from gymnasium.vector import SyncVectorEnv
 
@@ -62,27 +63,9 @@ class PPO:
             autoreset_mode="SameStep"
         )
 
-        # Build buffer
-        obs_shape = self.envs.single_observation_space.shape
-        action_shape = self.envs.single_action_space.shape
-        allocate_memory = lambda shape, dtype: torch.zeros(
-            config.rollout_steps, config.num_envs, *shape,
-            dtype=dtype, device=config.device
-        )
-        self.buffer = {
-            "observations": allocate_memory(obs_shape, torch.float32),
-            "next_observations": allocate_memory(obs_shape, torch.float32),
-            "actions": allocate_memory(action_shape, torch.int64),
-            "rewards": allocate_memory((), torch.float32),
-            "terminations": allocate_memory((), torch.bool),
-            "truncations": allocate_memory((), torch.bool),
-            "log_probs": allocate_memory(action_shape, torch.float32),
-            "values": allocate_memory((), torch.float32)
-        }
-
         # Create network and optimiser
         self.network = ActorCriticNetwork(
-            np.prod(obs_shape),
+            np.prod(self.envs.single_observation_space.shape),
             self.envs.single_action_space.n,
             hidden_dim=config.network_hidden_dim,
             activation_fn=config.network_activation_fn
@@ -91,6 +74,7 @@ class PPO:
             self.network.parameters(), lr=config.learning_rate
         )
 
+        self.buffer = []
         self.logger = None
         self.checkpointer = None
         self.device = config.device
@@ -114,40 +98,29 @@ class PPO:
 
         # Perform rollout, storing transitions in buffer
         for step_idx in range(self.config.rollout_steps):
-            # Network forward pass
-            observations_tensor = torch.tensor(
-                observations, dtype=torch.float32, device=self.device
+            # Forward pass to obtain actions
+            observations_tensor = torch.as_tensor(
+                observations, device=self.device
             )
-            logits, values = self.network(observations_tensor)
-            dist = torch.distributions.Categorical(logits=logits)
-            actions = dist.sample()
-            log_probs = dist.log_prob(actions)
+            dist = Categorical(logits=self.network.actor(observations_tensor))
+            actions = dist.sample().cpu().numpy()
 
             # Environment step
             next_observations, rewards, terminations, truncations, infos = \
-                self.envs.step(actions.cpu().numpy())
+                self.envs.step(actions)
             
             # Handle next states with reset environments
 
             # Add transition to buffer
-            self.buffer["observations"][step_idx] = observations_tensor
-            self.buffer["next_observations"][step_idx] = torch.as_tensor(
-                next_observations, dtype=torch.float32, device=self.device
-            )
-            self.buffer["actions"][step_idx] = actions
-            self.buffer["rewards"][step_idx] = torch.as_tensor(
-                rewards, dtype=torch.float32, device=self.device
-            )
-            self.buffer["terminations"][step_idx] = torch.as_tensor(
-                terminations, dtype=torch.bool, device=self.device
-            )
-            self.buffer["truncations"][step_idx] = torch.as_tensor(
-                truncations, dtype=torch.bool, device=self.device
-            )
-            self.buffer["log_probs"][step_idx] = log_probs
-            self.buffer["values"][step_idx] = values.squeeze(-1)
-
+            self.buffer.append([observations, next_observations, actions, 
+                                rewards, terminations, truncations])
             
+            # Log transition
+            if self.logger is not None:
+                self.logger.log(actions, rewards, terminations, truncations)
+            
+
+
 
 
 
