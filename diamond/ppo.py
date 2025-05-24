@@ -83,9 +83,9 @@ class PPO:
         self.logger = None
         self.timer = None
         self.checkpointer = None
-        self.config = config
         self.device = config.device
-
+        self.config = config
+        
     def select_action(self, observations: np.ndarray) -> np.ndarray:
         """NumPy action selection interface."""
         observations_tensor = torch.as_tensor(
