@@ -3,10 +3,6 @@
 ### Document
 - Add lots  more comments and documentation so code can be a much clearer reference for people learning
 
-### Custom networks
-- Make a nice way for users to use custom networks
-- E.g. make it an optional argument when making a PPO object that overrides default logic
-
 ### Nice readme
 - Basic usage guide
 - Swapping out network
