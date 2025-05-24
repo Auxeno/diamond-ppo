@@ -22,7 +22,7 @@ class PPOConfig:
     advantage_norm: bool = True
     grad_norm_clip = 0.5
     network_hidden_dim: int = 64
-    network_activation_fn: Type[torch.nn.Module] = torch.nn.Tanh
+    network_activation_fn: Type[torch.nn.Module] = nn.Tanh
     device: torch.device = torch.device("cpu")
 
 class ActorCriticNetwork(nn.Module):
@@ -58,7 +58,7 @@ class PPO:
     def __init__(
         self,
         env_fn: callable,
-        config: PPOConfig
+        config: PPOConfig = PPOConfig()
     ):
         # Create vectorised environments
         self.envs = SyncVectorEnv(
@@ -116,7 +116,7 @@ class PPO:
             final_observations = next_observations.copy()
             if "final_obs" in infos.keys():
                 for obs_idx, obs in enumerate(infos["final_obs"]):
-                    final_observations[obs_idx] = obs
+                    if obs is not None: final_observations[obs_idx] = obs
 
             # Add transition to experience buffer
             experience.append([observations, final_observations, actions, 
@@ -228,4 +228,6 @@ class PPO:
 
             # Learn from gathered experience
             self.learn(experience)
-            
+
+        self.envs.close()
+    
