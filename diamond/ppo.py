@@ -11,6 +11,7 @@ class PPOConfig:
     num_envs: int = 16
     rollout_steps: int = 128
     learning_rate: float = 3e-4
+    gamma: float = 0.99
     ppo_clip: float = 0.2
     num_epochs: int = 4
     num_minibatches: int = 8
@@ -87,7 +88,7 @@ class PPO:
             activation_fn=config.network_activation_fn
         )
         self.optimizer = torch.optim.Adam(
-            self.network.params, lr=config.learning_rate
+            self.network.parameters(), lr=config.learning_rate
         )
 
         self.logger = None
@@ -101,14 +102,54 @@ class PPO:
         )
         # Forward pass with policy network
         with torch.no_grad():
-            logits, values = self.network(observations_tensor)
+            logits = self.network.actor(observations_tensor)
 
         # Boltzmann action selection
-        actions = torch.distributions.Categorical(logits=logits).dist.sample()
+        actions = torch.distributions.Categorical(logits=logits).sample()
         return actions.cpu().numpy()
 
     def rollout(self) -> tuple:
-        pass
+        # Observations from initial reset or end of last rollout
+        observations = self.current_observations
+
+        # Perform rollout, storing transitions in buffer
+        for step_idx in range(self.config.rollout_steps):
+            # Network forward pass
+            observations_tensor = torch.tensor(
+                observations, dtype=torch.float32, device=self.device
+            )
+            logits, values = self.network(observations_tensor)
+            dist = torch.distributions.Categorical(logits=logits)
+            actions = dist.sample()
+            log_probs = dist.log_prob(actions)
+
+            # Environment step
+            next_observations, rewards, terminations, truncations, infos = \
+                self.envs.step(actions.cpu().numpy())
+            
+            # Handle next states with reset environments
+
+            # Add transition to buffer
+            self.buffer["observations"][step_idx] = observations_tensor
+            self.buffer["next_observations"][step_idx] = torch.as_tensor(
+                next_observations, dtype=torch.float32, device=self.device
+            )
+            self.buffer["actions"][step_idx] = actions
+            self.buffer["rewards"][step_idx] = torch.as_tensor(
+                rewards, dtype=torch.float32, device=self.device
+            )
+            self.buffer["terminations"][step_idx] = torch.as_tensor(
+                terminations, dtype=torch.bool, device=self.device
+            )
+            self.buffer["truncations"][step_idx] = torch.as_tensor(
+                truncations, dtype=torch.bool, device=self.device
+            )
+            self.buffer["log_probs"][step_idx] = log_probs
+            self.buffer["values"][step_idx] = values.squeeze(-1)
+
+            
+
+
 
     def learn(self):
         pass
