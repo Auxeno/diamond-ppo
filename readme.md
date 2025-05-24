@@ -1,6 +1,6 @@
 <div align="center">
 
-  <h1> 💎 Diamond PPO 💎 </h1>
+  <h1> 💎 Diamond PPO </h1>
   
   <h3>Clean, lightweight PyTorch PPO implementation for research</h3>
   
