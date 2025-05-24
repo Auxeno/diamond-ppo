@@ -10,7 +10,37 @@ import matplotlib.pyplot as plt
 
 
 class Logger:
-    """Track episode lengths, returns, steps and print training progress."""
+    """
+    Track episode lengths, returns, steps and print training progress.
+
+    Parameters
+    ----------
+    total_steps : int
+        Total number of steps the training process will run.
+    num_envs : int
+        Number of vectorised environments.
+    rollout_steps : int
+        Number of steps per rollout.
+    window_size : int, optional
+        Number of recent episodes to average when computing stats, by default 20.
+    print_every : int, optional
+        Number of environment steps between prints (scaled by num_envs), by default 5.
+    num_checkpoints : int, optional
+        Number of line breaks/checkpoints in the printed output, by default 20.
+    verbose : bool, optional
+        Whether to automatically print logs when logging steps, by default True.
+
+    Example
+    -------
+    >>> logger = Logger(total_steps=1_000_000, num_envs=16, rollout_steps=128)
+
+    >>> for _ in range(rollout_steps):
+    >>>     ...
+    >>>     _, rewards, terminations, truncations, _ = envs.step(actions)
+    >>>     logger.log(rewards, terminations, truncations)
+
+    >>> final_stats = logger.logs
+    """
     def __init__(
         self,
         total_steps: int,
