@@ -2,11 +2,13 @@
 Utility classes.
 """
 from typing import Any
+from pathlib import Path
 from contextlib import contextmanager
 import time
 from collections import deque
 import numpy as np
 import matplotlib.pyplot as plt
+import torch
 
 
 class Logger:
@@ -277,10 +279,76 @@ class Timer:
         plt.show()
 
 class Checkpointer:
-    """Convenience class used to save agents to disk."""
-    def __init__(self, folder="models", run_name="Test"):
-        pass
+    """
+    Minimal utility for saving and loading model training state.
 
-    def save(self):
-        """Saves network weights to disk."""
-        pass
+    Parameters
+    ----------
+    folder : str or Path, default "models"
+        Directory where checkpoints are stored.
+    run_name : str, default "run"
+        Prefix for checkpoint filenames:  `{run_name}-stepXXXXXX.pt`.
+    keep_last : int or None, default None
+        Keep only the newest *k* checkpoints.
+        Set to `None` (default) to keep **all**.
+
+    Examples
+    --------
+    >>> checkpointer = Checkpointer(folder="models", run_name="test")
+
+    Manual / fixed-interval saving
+    >>> for step in range(1, total_steps + 1):
+    ...     ...
+    >>>     if step % 100 == 0:
+    >>>         checkpointer.save(step, model, optimizer)
+
+    Resuming later
+    >>> checkpointer.load("models/test-step100.pt", model, optimizer)
+    """
+    def __init__(
+        self,
+        folder: str | Path = "models",
+        run_name: str = "run",
+        *,
+        keep_last: int | None = None,
+    ) -> None:
+        self.folder = Path(folder)
+        self.folder.mkdir(parents=True, exist_ok=True)
+        self.run_name = run_name
+        self.keep_last = keep_last
+
+    def save(
+        self,
+        step: int,
+        model: torch.nn.Module,
+        optimizer: torch.optim.Optimizer | None = None,
+    ) -> None:
+        """Save a checkpoint: model (+ optimiser if given)."""
+        fname = f"{self.run_name}-step{step:06d}.pt"
+        path = self.folder / fname
+        payload = {"step": step, "model_state": model.state_dict()}
+
+        if optimizer is not None:
+            payload["opt_state"] = optimizer.state_dict()
+
+        torch.save(payload, path)
+        self._trim_old()
+
+    def load(
+        self,
+        path: str | Path,
+        model: torch.nn.Module,
+        optimizer: torch.optim.Optimizer | None = None,
+    ) -> None:
+        """Load checkpoint into model (and optimizer if given)."""
+        chk = torch.load(path, map_location="cpu")
+        model.load_state_dict(chk["model_state"])
+        if optimizer is not None and "opt_state" in chk:
+            optimizer.load_state_dict(chk["opt_state"])
+
+    def _trim_old(self) -> None:
+        if self.keep_last is None:
+            return
+        ckpts = sorted(self.folder.glob(f"{self.run_name}-step*.pt"))
+        for old in ckpts[:-self.keep_last]:
+            old.unlink(missing_ok=True)
