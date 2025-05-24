@@ -5,6 +5,8 @@ import torch
 from torch import nn
 import gymnasium as gym
 
+from .utils import Logger, Timer, Checkpointer
+
 
 @dataclass
 class PPOConfig:
@@ -73,13 +75,13 @@ class PPO:
             self.envs.single_action_space.n,
             hidden_dim=config.network_hidden_dim,
             activation_fn=config.network_activation_fn
-        )
+        ).to(config.device)
         self.optimizer = torch.optim.Adam(
             self.network.parameters(), lr=config.learning_rate
         )
 
-        self.rollout_count = 0
         self.logger = None
+        self.timer = None
         self.checkpointer = None
         self.config = config
         self.device = config.device
@@ -226,6 +228,7 @@ class PPO:
         """Train PPO agent."""
         # Initial reset
         self.current_observations, _ = self.envs.reset()
+        self.rollout_count = 0
 
         # Main training loop
         total_rollouts = self.config.total_steps // (self.config.rollout_steps * self.config.num_envs)
