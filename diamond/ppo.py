@@ -8,15 +8,19 @@ from gymnasium.vector import SyncVectorEnv
 
 @dataclass
 class PPOConfig:
-    num_envs: int = 16
+    total_steps = 80_000
     rollout_steps: int = 128
+    num_envs: int = 16
     learning_rate: float = 3e-4
     gamma: float = 0.99
-    ppo_clip: float = 0.2
+    gae_lambda: float = 0.95
     num_epochs: int = 4
     num_minibatches: int = 8
-    gae_lambda: float = 0.95
+    ppo_clip: float = 0.2
+    value_loss_weight = 0.5
+    entropy_beta = 0.01
     advantage_norm: bool = True
+    grad_norm_clip = 0.5
     network_hidden_dim: int = 64
     network_activation_fn: Type[torch.nn.Module] = torch.nn.Tanh
     device: torch.device = torch.device("cpu")
@@ -145,8 +149,8 @@ class PPO:
         next_observations = torch.as_tensor(np.array(next_observations), dtype=torch.float32, device=self.device)
         actions = torch.as_tensor(np.array(actions), dtype=torch.int64, device=self.device)
         rewards = torch.as_tensor(np.array(rewards), dtype=torch.float32, device=self.device)
-        terminations = torch.as_tensor(np.array(terminations), dtype=torch.bool, device=self.device)
-        truncations = torch.as_tensor(np.array(truncations), dtype=torch.bool, device=self.device)
+        terminations = torch.as_tensor(np.array(terminations), dtype=torch.float32, device=self.device)
+        truncations = torch.as_tensor(np.array(truncations), dtype=torch.float32, device=self.device)
 
         with torch.no_grad():
             # Log probs and values before any updates
@@ -172,16 +176,16 @@ class PPO:
         )
 
         # Generate indices
-        batch_size = self.rollout_steps * self.num_envs
-        minibatch_size = batch_size // self.num_minibatches
-        perms = np.stack([np.random.permutation(batch_size) for _ in range(self.num_epochs)])
-        indices = perms.reshape(self.num_epochs, self.num_minibatches, minibatch_size)
+        batch_size = self.config.rollout_steps * self.config.num_envs
+        minibatch_size = batch_size // self.config.num_minibatches
+        perms = np.stack([np.random.permutation(batch_size) for _ in range(self.config.num_epochs)])
+        indices = perms.reshape(self.config.num_epochs, self.config.num_minibatches, minibatch_size)
 
         # PPO learning steps
         for b_indices in indices:
             for mb_indices in b_indices:
                 # Forward pass with current parameters
-                new_logits, new_values = self.network(observations)
+                new_logits, new_values = self.network(observations[mb_indices])
 
                 # PPO policy loss
                 dist = torch.distributions.Categorical(logits=new_logits)
@@ -214,7 +218,7 @@ class PPO:
     def train(self):
         """Train PPO agent."""
         # Initial reset
-        self.observations, _ = self.envs.reset()
+        self.current_observations, _ = self.envs.reset()
 
         # Main training loop
         total_rollouts = self.config.total_steps // (self.config.rollout_steps * self.config.num_envs)
@@ -224,3 +228,4 @@ class PPO:
 
             # Learn from gathered experience
             self.learn(experience)
+            
