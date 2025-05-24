@@ -167,8 +167,8 @@ class PPO:
         terminations = torch.as_tensor(np.array(terminations), dtype=torch.float32, device=self.device)
         truncations = torch.as_tensor(np.array(truncations), dtype=torch.float32, device=self.device)
 
+        # Log probs and values before any updates
         with torch.inference_mode():
-            # Log probs and values before any updates
             logits = self.network.actor(observations)
             log_probs = torch.distributions.Categorical(logits=logits).log_prob(actions)
             values = self.network.critic(observations).squeeze(-1)
@@ -180,7 +180,6 @@ class PPO:
         )
         returns = values + advantages
 
-        # Normalise advantages
         if self.config.advantage_norm:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
@@ -190,7 +189,7 @@ class PPO:
             map(flatten, [observations, log_probs, actions, advantages, returns, values])
         )
 
-        # Generate indices
+        # Generate batch/minibatch indices
         batch_size = self.config.rollout_steps * self.config.num_envs
         minibatch_size = batch_size // self.config.num_minibatches
         perms = np.stack([np.random.permutation(batch_size) for _ in range(self.config.num_epochs)])
