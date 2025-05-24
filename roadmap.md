@@ -38,6 +38,7 @@
 ---
 
 ### Improve logger
+- Verify custom logs logging works
 - Logger should also be able to log other info like learning statistics (kl div, losses)
 - Should be able to make nice graphs from training logs
 
