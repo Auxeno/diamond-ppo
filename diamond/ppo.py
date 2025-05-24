@@ -2,7 +2,6 @@ from typing import Type
 from dataclasses import dataclass
 import numpy as np
 import torch
-from torch.distributions import Categorical
 from torch import nn
 from gymnasium.vector import SyncVectorEnv
 
@@ -75,13 +74,14 @@ class PPO:
         )
 
         self.buffer = []
+        self.rollout_count = 0
         self.logger = None
         self.checkpointer = None
         self.device = config.device
 
     def select_action(self, observations: np.ndarray) -> np.ndarray:
-        """Convenient action selection interface for trained agent."""
-        observations_tensor = torch.tensor(
+        """NumPy action selection interface."""
+        observations_tensor = torch.as_tensor(
             observations, dtype=torch.float32, device=self.device
         )
         # Forward pass with policy network
@@ -98,34 +98,36 @@ class PPO:
 
         # Perform rollout, storing transitions in buffer
         for step_idx in range(self.config.rollout_steps):
-            # Forward pass to obtain actions
-            observations_tensor = torch.as_tensor(
-                observations, device=self.device
-            )
-            dist = Categorical(logits=self.network.actor(observations_tensor))
-            actions = dist.sample().cpu().numpy()
+            # Action selection
+            actions = self.select_action(observations)
 
             # Environment step
             next_observations, rewards, terminations, truncations, infos = \
                 self.envs.step(actions)
             
-            # Handle next states with reset environments
+            # Handle next states in automatically reset environments
+            final_observations = next_observations.copy()
+            if "final_obs" in infos.keys():
+                for obs_idx, obs in enumerate(infos["final_obs"]):
+                    final_observations[obs_idx] = obs
 
             # Add transition to buffer
-            self.buffer.append([observations, next_observations, actions, 
+            self.buffer.append([observations, final_observations, actions, 
                                 rewards, terminations, truncations])
             
             # Log transition
             if self.logger is not None:
                 self.logger.log(actions, rewards, terminations, truncations)
-            
 
-
-
-
+        # Store last observations for start of next rollout
+        self.current_observations = next_observations
+        self.rollout_count +=1 
 
     def learn(self):
-        pass
+        # Unpack experience from, then clear buffer
+        observations, next_observations, rewards, terminations, truncations = \
+            zip(*self.buffer)
+        self.buffer = []
 
     def train(self):
         pass
