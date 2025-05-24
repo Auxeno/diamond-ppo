@@ -1,9 +1,5 @@
 ## PPO Implementation Roadmap
 
-### Build checkpointer
-- Checkpointer should basically just save model weights to disk periodically
-- Logic to do this can be internal for max encapsulation
-
 ### Verify
 - Verify GAE calculation is correct compared to CleanRL's. If it is that's awesome
 
@@ -48,3 +44,6 @@
 ### Test performance with scripted torch
 - Replace network with one that has jit compiled methods that go brr
 - Check overall speedups
+
+### Multi-threaded sync vector envs wrapper
+- If you're feeling incredibly bored, make a multi-threaded vector envs wrapper. Should be quicker than the single-threaded and multi-processed version
