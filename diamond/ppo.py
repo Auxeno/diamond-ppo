@@ -21,9 +21,9 @@ class PPOConfig:
     num_minibatches: int = 8
     ppo_clip: float = 0.2
     value_loss_weight = 1.0
-    entropy_beta = 0.01
+    entropy_beta: float = 0.01
     advantage_norm: bool = True
-    grad_norm_clip = 0.5
+    grad_norm_clip: float = 0.5
     network_hidden_dim: int = 64
     network_activation_fn: Type[torch.nn.Module] = nn.Tanh
     device: torch.device = torch.device("cpu")
@@ -69,7 +69,7 @@ class PPO:
         # Create vectorised environments
         self.envs = gym.vector.SyncVectorEnv(
             [env_fn for _ in range(config.num_envs)], 
-            copy=False,
+            copy=True,
             autoreset_mode="SameStep"
         )
 
@@ -136,8 +136,11 @@ class PPO:
             if self.logger is not None:
                 self.logger.log(rewards, terminations, truncations)
 
+            # Update observations
+            observations = next_observations
+
         # Store last observations for start of next rollout
-        self.current_observations = next_observations
+        self.current_observations = observations
         return experience
 
     def calculate_advantage(
@@ -184,10 +187,9 @@ class PPO:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         # Merge step and environment dims for each tensor
-        flatten = lambda x: x.view(-1, *x.shape[2:])
-        observations, log_probs, actions, advantages, returns, values = (
+        flatten = lambda x: x.reshape(-1, *x.shape[2:])
+        observations, log_probs, actions, advantages, returns, values = \
             map(flatten, [observations, log_probs, actions, advantages, returns, values])
-        )
 
         # Generate batch/minibatch indices
         batch_size = self.config.rollout_steps * self.config.num_envs
