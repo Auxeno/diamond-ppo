@@ -19,7 +19,7 @@ class PPOConfig:
     num_epochs: int = 4
     num_minibatches: int = 8
     ppo_clip: float = 0.2
-    value_loss_weight = 0.5
+    value_loss_weight = 1.0
     entropy_beta = 0.01
     advantage_norm: bool = True
     grad_norm_clip = 0.5
@@ -206,7 +206,7 @@ class PPO:
                 loss_policy = torch.max(loss_surrogate_unclipped, loss_surrogate_clipped).mean()
 
                 # Value loss
-                loss_value = torch.nn.functional.mse_loss(new_values.squeeze(1), returns[mb_indices])
+                loss_value = 0.5 * torch.nn.functional.mse_loss(new_values.squeeze(1), returns[mb_indices])
 
                 # Entropy loss
                 entropy = dist.entropy().mean()
