@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 from torch import nn
-from gymnasium.vector import SyncVectorEnv
+import gymnasium as gym
 
 
 @dataclass
@@ -61,7 +61,7 @@ class PPO:
         config: PPOConfig = PPOConfig()
     ):
         # Create vectorised environments
-        self.envs = SyncVectorEnv(
+        self.envs = gym.vector.SyncVectorEnv(
             [env_fn for _ in range(config.num_envs)], 
             copy=False,
             autoreset_mode="SameStep"
