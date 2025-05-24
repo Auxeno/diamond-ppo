@@ -28,7 +28,7 @@ class PPOConfig:
     network_activation_fn: Type[torch.nn.Module] = nn.Tanh
     device: torch.device = torch.device("cpu")
     checkpoint: bool = False
-    checkpoint_save_interval: float = 600
+    checkpoint_save_interval_s: float = 600
     verbose: bool = True
 
 class ActorCriticNetwork(nn.Module):
@@ -84,11 +84,13 @@ class PPO:
             self.network.parameters(), lr=config.learning_rate
         )
 
+        # Create utility class instances
         self.logger = Logger(
             config.total_steps, config.num_envs, config.rollout_steps
         )
         self.timer = Timer()
         self.checkpointer = Checkpointer(folder="models", run_name="test")
+
         self.device = config.device
         self.config = config
         
@@ -136,7 +138,6 @@ class PPO:
 
         # Store last observations for start of next rollout
         self.current_observations = next_observations
-
         return experience
 
     def calculate_advantage(
@@ -246,7 +247,7 @@ class PPO:
 
             # Checkpointing
             if self.config.checkpoint:
-                if time.time() - self._last_checkpoint_time >= self.config.checkpoint_save_interval:
+                if time.time() - self._last_checkpoint_time >= self.config.checkpoint_save_interval_s:
                     self.checkpointer.save(self.logger.current_step, self.network, self.optimizer)
                     self._last_checkpoint_time = time.time()
 
