@@ -2,9 +2,11 @@
 Utility classes.
 """
 from typing import Any
+from contextlib import contextmanager
 import time
 from collections import deque
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 class Logger:
@@ -174,11 +176,61 @@ class Logger:
         for key in self.custom_logs:
             header += f"  |  {key}"
         print(header)
-    
 
 class Timer:
-    """Convenient way to profile code execution."""
-    pass
+    """Class designed to be used with a context manager to time sections of code."""
+    def __init__(self):
+        self.timings = {}
+    
+    def reset(self):
+        self.__init__()
+    
+    @contextmanager
+    def time(self, name: str):
+        start_time = time.time()
+        try:
+            yield
+        finally:
+            elapsed_time = time.time() - start_time
+            
+            if name not in self.timings:
+                self.timings[name] = {'avg_time': elapsed_time, 'count': 1}
+            else:
+                timing = self.timings[name]
+                timing['count'] += 1
+                timing['avg_time'] += (elapsed_time - timing['avg_time']) / timing['count']
+    
+    def plot_timings(self):
+        if not self.timings:
+            print("No timings to plot.")
+            return
+
+        # Extract names and compute total times
+        names = list(self.timings.keys())
+        total_times = [data['avg_time'] * data['count'] for data in self.timings.values()]
+
+        # Sort the timings by total time in descending order for better visualisation
+        sorted_indices = sorted(range(len(total_times)), key=lambda i: total_times[i], reverse=True)
+        sorted_names = [names[i] for i in sorted_indices]
+        sorted_total_times = [total_times[i] for i in sorted_indices]
+
+        # Create bar plot
+        plt.figure(figsize=(10, 6))
+        bars = plt.bar(sorted_names, sorted_total_times, color='#636EFA')
+
+        # Add text labels above the bars
+        for bar, total_time in zip(bars, sorted_total_times):
+            plt.text(bar.get_x() + bar.get_width() / 2, bar.get_height(), 
+                     f'{total_time:.4f}s', ha='center', va='bottom', fontsize=8)
+
+        # Labels
+        plt.ylabel('Total Time (seconds)')
+        plt.title('Code Timings')
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+
+        # Display
+        plt.show()
 
 class Checkpointer:
     """Convenience class used to save agents to disk."""
