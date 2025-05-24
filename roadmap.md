@@ -1,8 +1,5 @@
 ## PPO Implementation Roadmap
 
-### Verify
-- Verify GAE calculation is correct compared to CleanRL's. If it is that's awesome
-
 ### Document
 - Add lots  more comments and documentation so code can be a much clearer reference for people learning
 
