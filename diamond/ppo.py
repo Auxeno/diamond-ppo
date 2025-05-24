@@ -74,7 +74,6 @@ class PPO:
             self.network.parameters(), lr=config.learning_rate
         )
 
-        self.buffer = []
         self.rollout_count = 0
         self.logger = None
         self.checkpointer = None
@@ -93,11 +92,13 @@ class PPO:
         actions = torch.distributions.Categorical(logits=logits).sample()
         return actions.cpu().numpy()
 
-    def rollout(self) -> tuple:
+    def rollout(self) -> list[list[np.ndarray]]:
+        experience = []
+
         # Observations from initial reset or end of last rollout
         observations = self.current_observations
 
-        # Perform rollout, storing transitions in buffer
+        # Perform rollout, storing transitions in experience buffer
         for step_idx in range(self.config.rollout_steps):
             # Action selection
             actions = self.select_action(observations)
@@ -112,8 +113,8 @@ class PPO:
                 for obs_idx, obs in enumerate(infos["final_obs"]):
                     final_observations[obs_idx] = obs
 
-            # Add transition to buffer
-            self.buffer.append([observations, final_observations, actions, 
+            # Add transition to experience buffer
+            experience.append([observations, final_observations, actions, 
                                 rewards, terminations, truncations])
             
             # Log transition
@@ -123,6 +124,8 @@ class PPO:
         # Store last observations for start of next rollout
         self.current_observations = next_observations
         self.rollout_count +=1 
+
+        return experience
 
     def calculate_advantage(self, rewards, terminations, truncations, values, next_values):
         """Calculate advantage with generalised advantage estimation."""
@@ -134,16 +137,15 @@ class PPO:
             advantages[idx] = advantage = delta + self.config.gamma * self.config.gae_lambda * non_termination * non_truncation * advantage
         return advantages
 
-    def learn(self):
-        # Unpack experience from, then clear buffer
-        observations, next_observations, actions, rewards, terminations, truncations = zip(*self.buffer)
+    def learn(self, experience: list[list[np.ndarray]]):
+        # Unpack experience
+        observations, next_observations, actions, rewards, terminations, truncations = zip(*experience)
         observations = torch.as_tensor(np.array(observations), dtype=torch.float32, device=self.device)
         next_observations = torch.as_tensor(np.array(next_observations), dtype=torch.float32, device=self.device)
         actions = torch.as_tensor(np.array(actions), dtype=torch.int64, device=self.device)
         rewards = torch.as_tensor(np.array(rewards), dtype=torch.float32, device=self.device)
         terminations = torch.as_tensor(np.array(terminations), dtype=torch.bool, device=self.device)
         truncations = torch.as_tensor(np.array(truncations), dtype=torch.bool, device=self.device)
-        self.buffer = []
 
         with torch.no_grad():
             # Log probs and values before any updates
@@ -208,7 +210,16 @@ class PPO:
                 nn.utils.clip_grad_norm_(self.network.parameters(), self.config.grad_norm_clip)
                 self.optimizer.step()
 
-
     def train(self):
-        pass
-    
+        """Train PPO agent."""
+        # Initial reset
+        self.observations, _ = self.envs.reset()
+
+        # Main training loop
+        total_rollouts = self.config.total_steps // (self.config.rollout_steps * self.config.num_envs)
+        for rollout_idx in range(total_rollouts):
+            # Perform rollout to gather experience
+            experience = self.rollout()
+
+            # Learn from gathered experience
+            self.learn(experience)
