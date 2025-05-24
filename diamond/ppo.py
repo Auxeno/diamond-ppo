@@ -123,11 +123,31 @@ class PPO:
         self.current_observations = next_observations
         self.rollout_count +=1 
 
+    def calculate_advantage(self, rewards, terminations, truncations, values):
+        pass
+
     def learn(self):
         # Unpack experience from, then clear buffer
-        observations, next_observations, rewards, terminations, truncations = \
-            zip(*self.buffer)
+        observations, next_observations, actions, rewards, terminations, truncations = zip(*self.buffer)
+        observations = torch.as_tensor(np.array(observations), dtype=torch.float32, device=self.device)
+        next_observations = torch.as_tensor(np.array(next_observations), dtype=torch.float32, device=self.device)
+        actions = torch.as_tensor(np.array(actions), dtype=torch.int64, device=self.device)
+        rewards = torch.as_tensor(np.array(rewards), dtype=torch.float32, device=self.device)
+        terminations = torch.as_tensor(np.array(terminations), dtype=torch.bool, device=self.device)
+        truncations = torch.as_tensor(np.array(truncations), dtype=torch.bool, device=self.device)
         self.buffer = []
+
+        with torch.no_grad():
+            # Log probs and values before any updates
+            logits = self.network.actor(observations)
+            log_probs = torch.distributions.Categorical(logits=logits).log_prob(actions)
+            values = self.network.critic(observations).squeeze(-1)
+            next_values = self.network.critic(next_observations).squeeze(-1)
+
+            # Calculate advantages
+            advantages = self.calculate_advantage(
+                rewards, terminations, truncations, values, next_values
+            )
 
     def train(self):
         pass
