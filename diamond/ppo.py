@@ -10,7 +10,7 @@ from .utils import Logger, Timer, Checkpointer
 
 @dataclass
 class PPOConfig:
-    total_steps = 80_000
+    total_steps: int = 80_000
     rollout_steps: int = 128
     num_envs: int = 16
     learning_rate: float = 3e-4
@@ -92,7 +92,7 @@ class PPO:
             observations, dtype=torch.float32, device=self.device
         )
         # Forward pass with policy network
-        with torch.no_grad():
+        with torch.inference_mode():
             logits = self.network.actor(observations_tensor)
 
         # Boltzmann action selection
@@ -161,7 +161,7 @@ class PPO:
         terminations = torch.as_tensor(np.array(terminations), dtype=torch.float32, device=self.device)
         truncations = torch.as_tensor(np.array(truncations), dtype=torch.float32, device=self.device)
 
-        with torch.no_grad():
+        with torch.inference_mode():
             # Log probs and values before any updates
             logits = self.network.actor(observations)
             log_probs = torch.distributions.Categorical(logits=logits).log_prob(actions)
