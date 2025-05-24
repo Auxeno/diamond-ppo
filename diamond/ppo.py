@@ -77,6 +77,7 @@ class PPO:
         self.rollout_count = 0
         self.logger = None
         self.checkpointer = None
+        self.config = config
         self.device = config.device
 
     def select_action(self, observations: np.ndarray) -> np.ndarray:
