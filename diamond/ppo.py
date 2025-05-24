@@ -26,6 +26,8 @@ class PPOConfig:
     network_hidden_dim: int = 64
     network_activation_fn: Type[torch.nn.Module] = nn.Tanh
     device: torch.device = torch.device("cpu")
+    num_checkpoints: int = 20
+    verbose: bool = True
 
 class ActorCriticNetwork(nn.Module):
     def __init__(
@@ -80,7 +82,9 @@ class PPO:
             self.network.parameters(), lr=config.learning_rate
         )
 
-        self.logger = None
+        self.logger = Logger(
+            config.total_steps, config.num_envs, config.rollout_steps
+        )
         self.timer = None
         self.checkpointer = None
         self.device = config.device
@@ -126,7 +130,7 @@ class PPO:
             
             # Log transition
             if self.logger is not None:
-                self.logger.log(actions, rewards, terminations, truncations)
+                self.logger.log(rewards, terminations, truncations)
 
         # Store last observations for start of next rollout
         self.current_observations = next_observations
