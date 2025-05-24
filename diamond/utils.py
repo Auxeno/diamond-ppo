@@ -186,10 +186,10 @@ class Timer:
     >>> timer = Timer()
 
     >>> with timer.time("action selection"):
-    >>>    agent.select_action(observations)
+    >>>    action = agent.select_action(observations)
 
     >>> with timer.time("env step"):
-    >>>    env.step(action)
+    >>>    result = env.step(action)
 
     >>> timer.plot_timings()
     """
