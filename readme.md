@@ -11,9 +11,11 @@
 
 ---
 
-Diamond PPO aims to be a clean and minimal implementation of Proximal Policy Optimisation written in PyTorch.  
+Aims to be a clean and minimal PyTorch implementation of Proximal Policy Optimisation ([Schulman et al. 2017](https://arxiv.org/abs/1707.06347)).  
 
-It is designed for Gymnasium environments and is compatible with custom user-defined neural networks.
+Designed for Gymnasium environments and compatible with custom user-defined neural networks.
+
+Includes optional utilities for logging, timing, and checkpointing.
 
 ---
 
@@ -52,26 +54,27 @@ agent.train()
 ## Custom Network
 
 ```python
-import torch.nn as nn
-
-class MyNet(nn.Module):
-    def __init__(self, obs_dim, act_dim):
+class AtariNet(nn.Module):
+    def __init__(self):
         super().__init__()
-        self.actor  = nn.Linear(obs_dim, act_dim)
-        self.critic = nn.Sequential(
-            nn.Linear(obs_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, 1)
-        )
+        self.base = NatureCNN()
+        self.actor_head = nn.LazyLinear(6)
+        self.critic_head = nn.LazyLinear(1)
+
+        # Define actor and critic attributes
+        self.actor = nn.Sequential(self.base, self.actor_head)
+        self.critic = nn.Sequential(self.base, self.critic_head)
+
     def forward(self, x):
-        return self.actor(x), self.critic(x)
+        x = self.base(x)
+        return self.actor_head(x), self.critic_head(x)
 
-# Example usage (CartPole)
-model = MyNet(obs_dim=4, act_dim=2)
-
-agent = PPO(env_fn, custom_network=model)
+# Example usage (Pong)
+agent = PPO(lambda: gym.make("ALE/Pong-v5"), custom_network=AtariNet())
 agent.train()
 ```
+
+Custom networks are fully supported, just provide `actor` and `critic` attributes, or modify `ppo.py` if your model structure differs.
 
 ---
 
@@ -89,11 +92,3 @@ with timer.time("env step"):
 timer.plot_timings()
 ```
 
----
-
-## Licence
-
-This project is licensed under the Apache 2.0 License.
-
-> Copyright © 2025
-> Alex – https://github.com/auxeno

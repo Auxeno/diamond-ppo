@@ -1,8 +1,7 @@
 ## PPO Implementation Roadmap
 
 ### Nice readme
-- Swapping environment to pixel-based
-- Shared policy and value functions
+- Change config guide
 
 ### Multi-discrete
 - Support multi-discrete action spaces
