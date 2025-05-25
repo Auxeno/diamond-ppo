@@ -275,14 +275,17 @@ class PPO:
             # Update policy and value networks from experience
             self.learn(experience)
 
+            # Number of environment steps
+            env_steps = (rollout_idx + 1) * self.cfg.rollout_steps * self.cfg.num_envs
+
             # Optionally save model state at intervals
             if self.cfg.checkpoint:
                 if time.time() - last_checkpoint_time >= self.cfg.save_interval:
-                    self.checkpointer.save(self.logger.current_step, self.network, self.optimizer)
+                    self.checkpointer.save(env_steps, self.network, self.optimizer)
                     last_checkpoint_time = time.time()
 
         # Optionally save final model after training
         if self.cfg.checkpoint:
-            self.checkpointer.save(self.logger.current_step, self.network, self.optimizer)
+            self.checkpointer.save(env_steps, self.network, self.optimizer)
 
         self.envs.close()
