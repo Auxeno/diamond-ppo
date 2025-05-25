@@ -26,7 +26,7 @@ class PPOConfig:
     grad_norm_clip: float = 0.5   # Global gradient norm clip
     network_hidden_dim: int = 64  # Hidden dim for default MLP
     cuda: bool = False            # Use GPU if available
-    seed: int = 42                # RNG seed
+    seed: int | None = 42         # RNG seed
     checkpoint: bool = False      # Enable model checkpointing
     save_interval: float = 600    # Checkpoint interval (seconds)
     verbose: bool = True          # Verbose logging
@@ -74,8 +74,9 @@ class PPO:
         )
 
         # RNG seeding
-        np.random.seed(cfg.seed)
-        torch.manual_seed(cfg.seed)
+        if cfg.seed is not None:
+            np.random.seed(cfg.seed)
+            torch.manual_seed(cfg.seed)
 
         # Create vectorised environments
         self.envs = gym.vector.SyncVectorEnv(
