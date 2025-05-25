@@ -80,13 +80,13 @@ agent.train()
 Conveniently profile sections of your code with the `Timer` utility:
 
 ```python
->>> with timer.time("action selection"):
->>>    action = select_action(observations)
+with timer.time("action selection"):
+   action = select_action(observations)
 
->>> with timer.time("env step"):
->>>    result = env.step(action)
+with timer.time("env step"):
+   result = env.step(action)
 
->>> timer.plot_timings()
+timer.plot_timings()
 ```
 
 ---
