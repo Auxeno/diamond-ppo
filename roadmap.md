@@ -1,7 +1,7 @@
 ## PPO Implementation Roadmap
 
 ### Nice readme
-- Change config guide
+- Add image for plot timings
 
 ### Multi-discrete
 - Support multi-discrete action spaces

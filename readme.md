@@ -30,7 +30,7 @@ Includes optional utilities for logging, timing, and checkpointing.
 
 ## Install
 
-> **Note:** Diamond PPO requires Python 3.10 or higher (tested on 3.12).
+> **Note:** Diamond PPO requires Python 3.10 or higher.
 
 ```bash
 git clone https://github.com/auxeno/diamond-ppo
@@ -48,6 +48,28 @@ from diamond import PPO
 agent = PPO(env_fn=lambda: gym.make("CartPole-v1"))
 agent.train()
 ```
+
+---
+
+## Configuration
+
+All training options can be changed through `PPOConfig`:
+
+```python
+from diamond import PPO, PPOConfig
+
+cfg = PPOConfig(
+    total_steps=1_000_000,
+    rollout_steps=128,
+    num_envs=8,
+    checkpoint=True,
+    save_interval=300
+)
+agent = PPO(lambda: gym.make("LunarLander-v3"), cfg=cfg)
+agent.train()
+```
+
+`PPOConfig` is documented in `ppo.py`.
 
 ---
 
