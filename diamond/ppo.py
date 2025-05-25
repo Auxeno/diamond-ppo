@@ -12,23 +12,23 @@ from .utils import Logger, Timer, Checkpointer
 
 @dataclass
 class PPOConfig:
-    total_steps: int = 400_000    # Total training env steps
+    total_steps: int = 400_000    # Total training environment steps
     rollout_steps: int = 64       # Number of vectorised steps per rollout
-    num_envs: int = 16            # Number of parallel envs
-    learning_rate: float = 3e-4   # Optimiser lr
+    num_envs: int = 16            # Number of parallel environments
+    learning_rate: float = 3e-4   # Optimiser learning rate
     gamma: float = 0.99           # Discount factor
     gae_lambda: float = 0.95      # GAE lambda
     num_epochs: int = 4           # PPO epochs per update
     num_minibatches: int = 8      # Minibatch updates per epoch
     ppo_clip: float = 0.2         # PPO clip parameter
-    value_loss_weight = 1.0       # Weight of value
-    entropy_beta: float = 0.01    # Entropy reg coeff
+    value_loss_weight = 1.0       # Weight of value loss
+    entropy_beta: float = 0.01    # Entropy regularisation coeffient
     advantage_norm: bool = True   # Normalise advantages if true
     grad_norm_clip: float = 0.5   # Global gradient norm clip
     network_hidden_dim: int = 64  # 2 hidden layer MLP hidden dim
-    device: str = "cpu"           # "cuda" for GPU support
+    cuda: bool = False            # Use GPU if available
     checkpoint: bool = False      # Enable model checkpointing
-    save_interval: float = 600    # Checkpoint interval (s)
+    save_interval: float = 600    # Checkpoint interval (seconds)
     verbose: bool = True          # Verbose logging
 
 class ActorCriticNetwork(nn.Module):
@@ -68,6 +68,11 @@ class PPO:
         cfg: PPOConfig = PPOConfig(),
         custom_network: nn.Module | None = None
     ):
+        # Device selection
+        self.device = torch.device(
+            "cuda" if cfg.cuda and torch.cuda.is_available() else "cpu"
+        )
+
         # Create vectorised environments
         self.envs = gym.vector.SyncVectorEnv(
             [env_fn for _ in range(cfg.num_envs)], 
@@ -77,13 +82,13 @@ class PPO:
 
         # Create network and optimiser
         if custom_network is not None:
-            self.network = custom_network.to(cfg.device)
+            self.network = custom_network.to(self.device)
         else:
             self.network = ActorCriticNetwork(
                 np.prod(self.envs.single_observation_space.shape),
                 self.envs.single_action_space.n,
                 hidden_dim=cfg.network_hidden_dim
-            ).to(cfg.device)
+            ).to(self.device)
         self.optimizer = torch.optim.Adam(
             self.network.parameters(), lr=cfg.learning_rate
         )
@@ -93,7 +98,6 @@ class PPO:
         self.timer = Timer()
         self.checkpointer = Checkpointer(folder="models", run_name="test")
 
-        self.device = cfg.device
         self.cfg = cfg
         
     def select_action(self, observations: np.ndarray) -> np.ndarray:
@@ -160,7 +164,7 @@ class PPO:
         Accumulation stops at terminations or truncations, as further TD errors
         are from future episodes.
         """
-        advantages = torch.zeros_like(rewards, device=self.cfg.device)
+        advantages = torch.zeros_like(rewards, device=self.device)
         advantage = 0.0
         # Iterate backwards in time from last timestep to first
         for t in reversed(range(self.cfg.rollout_steps)):
