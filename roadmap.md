@@ -3,7 +3,6 @@
 ### Nice readme
 - Swapping environment to pixel-based
 - Shared policy and value functions
-- Timer usage
 
 ### Multi-discrete
 - Support multi-discrete action spaces
@@ -29,9 +28,6 @@
 
 ### Check pixel obs work
 - Actually check this (should be fine)
-
-### Check `np.as_array`
-- When unpacking experience list, does np.as_array outperform np.array?
 
 ### Test performance with scripted torch
 - Replace network with one that has jit compiled methods that go brr
