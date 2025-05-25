@@ -53,6 +53,8 @@ agent.train()
 
 ## Custom Network
 
+Custom networks are fully supported, just provide `actor` and `critic` attributes, or modify `ppo.py` if your model structure differs.
+
 ```python
 class AtariNet(nn.Module):
     def __init__(self):
@@ -73,8 +75,6 @@ class AtariNet(nn.Module):
 agent = PPO(lambda: gym.make("ALE/Pong-v5"), custom_network=AtariNet())
 agent.train()
 ```
-
-Custom networks are fully supported, just provide `actor` and `critic` attributes, or modify `ppo.py` if your model structure differs.
 
 ---
 
