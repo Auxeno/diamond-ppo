@@ -26,6 +26,7 @@ class PPOConfig:
     grad_norm_clip: float = 0.5   # Global gradient norm clip
     network_hidden_dim: int = 64  # Hidden dim for default MLP
     cuda: bool = False            # Use GPU if available
+    seed: int = 42                # RNG seed
     checkpoint: bool = False      # Enable model checkpointing
     save_interval: float = 600    # Checkpoint interval (seconds)
     verbose: bool = True          # Verbose logging
@@ -71,6 +72,10 @@ class PPO:
         self.device = torch.device(
             "cuda" if cfg.cuda and torch.cuda.is_available() else "cpu"
         )
+
+        # RNG seeding
+        np.random.seed(cfg.seed)
+        torch.manual_seed(cfg.seed)
 
         # Create vectorised environments
         self.envs = gym.vector.SyncVectorEnv(
@@ -262,7 +267,7 @@ class PPO:
     def train(self) -> None:
         """Train PPO agent."""
         # Vectorised reset, get initial observations
-        self.current_observations, _ = self.envs.reset()
+        self.current_observations, _ = self.envs.reset(seed=self.cfg.seed)
         last_checkpoint_time = time.time()
 
         # Compute number of rollouts to reach total steps
