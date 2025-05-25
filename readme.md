@@ -91,4 +91,3 @@ with timer.time("env step"):
 
 timer.plot_timings()
 ```
-
