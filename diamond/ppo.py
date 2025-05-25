@@ -10,7 +10,7 @@ from .utils import Logger, Timer, Checkpointer
 
 
 @dataclass
-class PPOcfg:
+class PPOConfig:
     total_steps: int = 80_000
     rollout_steps: int = 64
     num_envs: int = 16
@@ -65,7 +65,7 @@ class PPO:
         self,
         env_fn: callable,
         *,
-        cfg: PPOcfg = PPOcfg(),
+        cfg: PPOConfig = PPOConfig(),
         custom_network: nn.Module | None = None
     ):
         # Create vectorised environments
