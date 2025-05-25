@@ -4,7 +4,6 @@ import time
 import numpy as np
 import torch
 from torch import nn
-from torch.distributions import Categorical
 import gymnasium as gym
 
 from .utils import Logger, Timer, Checkpointer
@@ -110,7 +109,7 @@ class PPO:
             logits = self.network.actor(observations_tensor)
 
         # Boltzmann action selection
-        actions = Categorical(logits=logits).sample()
+        actions = torch.distributions.Categorical(logits=logits).sample()
         return actions.cpu().numpy()
 
     def rollout(self) -> list[list[np.ndarray]]:
@@ -203,7 +202,7 @@ class PPO:
         # Log probs and values before any updates
         with torch.inference_mode():
             logits = self.network.actor(observations)
-            log_probs = Categorical(logits=logits).log_prob(actions)
+            log_probs = torch.distributions.Categorical(logits=logits).log_prob(actions)
             values = self.network.critic(observations).squeeze(-1)
             next_values = self.network.critic(next_observations).squeeze(-1)
 
@@ -233,7 +232,7 @@ class PPO:
                 new_logits, new_values = self.network(observations[mb_indices])
 
                 # Compute PPO clipped policy loss
-                dist = Categorical(logits=new_logits)
+                dist = torch.distributions.Categorical(logits=new_logits)
                 new_log_probs = dist.log_prob(actions[mb_indices])
                 ratio = (new_log_probs - log_probs[mb_indices]).exp()
                 loss_surrogate_unclipped = -advantages[mb_indices] * ratio
