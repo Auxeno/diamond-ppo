@@ -34,3 +34,9 @@
 
 ### Multi-threaded sync vector envs wrapper
 - If you're feeling incredibly bored, make a multi-threaded vector envs wrapper. Should be quicker than the single-threaded and multi-processed version
+
+### Magic numbers
+- There are a few magic numbers still floating around, notably in utils.py classes. Put these in config
+
+### More logging detail
+- Consider do we want more advanced training stat loggin
