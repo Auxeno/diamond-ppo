@@ -65,6 +65,7 @@ config = PPOConfig(
     checkpoint=True,
     save_interval=300
 )
+
 agent = PPO(lambda: gym.make("LunarLander-v3"), cfg=config)
 agent.train()
 ```
