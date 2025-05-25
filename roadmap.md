@@ -1,13 +1,12 @@
 ## PPO Implementation Roadmap
 
 ### Document
-- Add lots  more comments and documentation so code can be a much clearer reference for people learning
 - Config in particular
-- check dict type is okay instead of Dict
 
 ### Nice readme
 - Swapping environment to pixel-based
 - Shared policy and value functions
+- Timer usage
 
 ### Multi-discrete
 - Support multi-discrete action spaces

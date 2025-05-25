@@ -1,4 +1,4 @@
-from typing import Type, Callable
+from typing import Callable
 from dataclasses import dataclass
 import time
 import numpy as np
@@ -12,25 +12,24 @@ from .utils import Logger, Timer, Checkpointer
 
 @dataclass
 class PPOConfig:
-    total_steps: int = 80_000
-    rollout_steps: int = 64
-    num_envs: int = 16
-    learning_rate: float = 3e-4
-    gamma: float = 0.99
-    gae_lambda: float = 0.95
-    num_epochs: int = 4
-    num_minibatches: int = 8
-    ppo_clip: float = 0.2
-    value_loss_weight = 1.0
-    entropy_beta: float = 0.01
-    advantage_norm: bool = True
-    grad_norm_clip: float = 0.5
-    network_hidden_dim: int = 64
-    network_activation_fn: Type[torch.nn.Module] = nn.Tanh
-    device: torch.device = torch.device("cpu")
-    checkpoint: bool = False
-    checkpoint_save_interval_s: float = 600
-    verbose: bool = True
+    total_steps: int = 400_000    # Total training env steps
+    rollout_steps: int = 64       # Number of vectorised steps per rollout
+    num_envs: int = 16            # Number of parallel envs
+    learning_rate: float = 3e-4   # Optimiser lr
+    gamma: float = 0.99           # Discount factor
+    gae_lambda: float = 0.95      # GAE lambda
+    num_epochs: int = 4           # PPO epochs per update
+    num_minibatches: int = 8      # Minibatch updates per epoch
+    ppo_clip: float = 0.2         # PPO clip parameter
+    value_loss_weight = 1.0       # Weight of value
+    entropy_beta: float = 0.01    # Entropy reg coeff
+    advantage_norm: bool = True   # Normalise advantages if true
+    grad_norm_clip: float = 0.5   # Global gradient norm clip
+    network_hidden_dim: int = 64  # 2 hidden layer MLP hidden dim
+    device: str = "cpu"           # "cuda" for GPU support
+    checkpoint: bool = False      # Enable model checkpointing
+    save_interval: float = 600    # Checkpoint interval (s)
+    verbose: bool = True          # Verbose logging
 
 class ActorCriticNetwork(nn.Module):
     """Two hidden layer MLP."""
@@ -38,24 +37,23 @@ class ActorCriticNetwork(nn.Module):
         self, 
         observation_dim: int, 
         action_dim: int, 
-        hidden_dim: int = 64, 
-        activation_fn: Type[nn.Module] = nn.Tanh
+        hidden_dim: int = 64
     ):
         super().__init__()
         self.actor = nn.Sequential(
             nn.Linear(observation_dim,  hidden_dim),
-            activation_fn(),
+            nn.Tanh(),
             nn.Linear(hidden_dim, hidden_dim),
-            activation_fn(),
+            nn.Tanh(),
             nn.Linear(hidden_dim, action_dim)
         )
         self.actor[-1].weight.data *= 0.01
         
         self.critic = nn.Sequential(
             nn.Linear(observation_dim,  hidden_dim),
-            activation_fn(),
+            nn.Tanh(),
             nn.Linear(hidden_dim, hidden_dim),
-            activation_fn(),
+            nn.Tanh(),
             nn.Linear(hidden_dim, 1)
         )
         
@@ -84,8 +82,7 @@ class PPO:
             self.network = ActorCriticNetwork(
                 np.prod(self.envs.single_observation_space.shape),
                 self.envs.single_action_space.n,
-                hidden_dim=cfg.network_hidden_dim,
-                activation_fn=cfg.network_activation_fn
+                hidden_dim=cfg.network_hidden_dim
             ).to(cfg.device)
         self.optimizer = torch.optim.Adam(
             self.network.parameters(), lr=cfg.learning_rate
@@ -276,7 +273,7 @@ class PPO:
 
             # Optionally save model state at intervals
             if self.cfg.checkpoint:
-                if time.time() - last_checkpoint_time >= self.cfg.checkpoint_save_interval_s:
+                if time.time() - last_checkpoint_time >= self.cfg.save_interval:
                     self.checkpointer.save(self.logger.current_step, self.network, self.optimizer)
                     last_checkpoint_time = time.time()
 
@@ -285,4 +282,3 @@ class PPO:
             self.checkpointer.save(self.logger.current_step, self.network, self.optimizer)
 
         self.envs.close()
-    

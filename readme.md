@@ -11,7 +11,7 @@
 
 ---
 
-Diamond PPO aims to be a clean and minimal implementation of Proximal Policy Optimisation (PPO), written in PyTorch.  
+Diamond PPO aims to be a clean and minimal implementation of Proximal Policy Optimisation written in PyTorch.  
 
 It is designed for Gymnasium environments and is compatible with custom user-defined neural networks.
 
@@ -21,12 +21,14 @@ It is designed for Gymnasium environments and is compatible with custom user-def
 
 - Minimal, readable implementation (~300 lines)
 - Supports custom networks
-- Full-support for truncation
 - Vectorised environments
+- Full-support for truncation
 
 ---
 
 ## Install
+
+> **Note:** Diamond PPO requires Python 3.10 or higher (tested on 3.12).
 
 ```bash
 git clone https://github.com/auxeno/diamond-ppo
