@@ -10,9 +10,9 @@ from .utils import Logger, Timer, Checkpointer
 
 
 @dataclass
-class PPOConfig:
+class PPOcfg:
     total_steps: int = 80_000
-    rollout_steps: int = 128
+    rollout_steps: int = 64
     num_envs: int = 16
     learning_rate: float = 3e-4
     gamma: float = 0.99
@@ -65,46 +65,44 @@ class PPO:
         self,
         env_fn: callable,
         *,
-        config: PPOConfig = PPOConfig(),
+        cfg: PPOcfg = PPOcfg(),
         custom_network: nn.Module | None = None
     ):
         # Create vectorised environments
         self.envs = gym.vector.SyncVectorEnv(
-            [env_fn for _ in range(config.num_envs)], 
+            [env_fn for _ in range(cfg.num_envs)], 
             copy=True,
             autoreset_mode="SameStep"
         )
 
         # Create network and optimiser
         if custom_network is not None:
-            self.network = custom_network.to(config.device)
+            self.network = custom_network.to(cfg.device)
         else:
             self.network = ActorCriticNetwork(
                 np.prod(self.envs.single_observation_space.shape),
                 self.envs.single_action_space.n,
-                hidden_dim=config.network_hidden_dim,
-                activation_fn=config.network_activation_fn
-            ).to(config.device)
+                hidden_dim=cfg.network_hidden_dim,
+                activation_fn=cfg.network_activation_fn
+            ).to(cfg.device)
         self.optimizer = torch.optim.Adam(
-            self.network.parameters(), lr=config.learning_rate
+            self.network.parameters(), lr=cfg.learning_rate
         )
 
         # Create utility class instances
-        self.logger = Logger(
-            config.total_steps, config.num_envs, config.rollout_steps
-        )
+        self.logger = Logger(cfg.total_steps, cfg.num_envs, cfg.rollout_steps)
         self.timer = Timer()
         self.checkpointer = Checkpointer(folder="models", run_name="test")
 
-        self.device = config.device
-        self.config = config
+        self.device = cfg.device
+        self.cfg = cfg
         
     def select_action(self, observations: np.ndarray) -> np.ndarray:
         """NumPy action selection interface."""
+        # Forward pass with policy network
         observations_tensor = torch.as_tensor(
             observations, dtype=torch.float32, device=self.device
         )
-        # Forward pass with policy network
         with torch.inference_mode():
             logits = self.network.actor(observations_tensor)
 
@@ -119,7 +117,7 @@ class PPO:
         observations = self.current_observations
 
         # Perform rollout, storing transitions in experience buffer
-        for step_idx in range(self.config.rollout_steps):
+        for step_idx in range(self.cfg.rollout_steps):
             # Action selection
             actions = self.select_action(observations)
 
@@ -133,11 +131,11 @@ class PPO:
                 for obs_idx, obs in enumerate(infos["final_obs"]):
                     if obs is not None: final_observations[obs_idx] = obs
 
-            # Add transition to experience buffer
+            # Append transition to experience buffer
             experience.append([observations, final_observations, actions, 
                                 rewards, terminations, truncations])
             
-            # Log transition
+            # Log transition with logger
             if self.logger is not None:
                 self.logger.log(rewards, terminations, truncations)
 
@@ -157,12 +155,12 @@ class PPO:
         next_values: torch.Tensor
     ) -> torch.Tensor:
         """Calculate advantage with generalised advantage estimation."""
-        advantages = torch.zeros_like(rewards, device=self.config.device)
+        advantages = torch.zeros_like(rewards, device=self.cfg.device)
         advantage = 0.0
-        for idx in reversed(range(self.config.rollout_steps)):
+        for idx in reversed(range(self.cfg.rollout_steps)):
             non_termination, non_truncation = 1.0 - terminations[idx], 1.0 - truncations[idx]
-            delta = rewards[idx] + self.config.gamma * next_values[idx] * non_termination - values[idx]
-            advantages[idx] = advantage = delta + self.config.gamma * self.config.gae_lambda * non_termination * non_truncation * advantage
+            delta = rewards[idx] + self.cfg.gamma * next_values[idx] * non_termination - values[idx]
+            advantages[idx] = advantage = delta + self.cfg.gamma * self.cfg.gae_lambda * non_termination * non_truncation * advantage
         return advantages
 
     def learn(self, experience: list[list[np.ndarray]]) -> None:
@@ -188,7 +186,7 @@ class PPO:
         )
         returns = values + advantages
 
-        if self.config.advantage_norm:
+        if self.cfg.advantage_norm:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         # Merge step and environment dims for each tensor
@@ -197,10 +195,10 @@ class PPO:
             map(flatten, [observations, log_probs, actions, advantages, returns, values])
 
         # Generate batch/minibatch indices
-        batch_size = self.config.rollout_steps * self.config.num_envs
-        minibatch_size = batch_size // self.config.num_minibatches
-        perms = np.stack([np.random.permutation(batch_size) for _ in range(self.config.num_epochs)])
-        indices = perms.reshape(self.config.num_epochs, self.config.num_minibatches, minibatch_size)
+        batch_size = self.cfg.rollout_steps * self.cfg.num_envs
+        minibatch_size = batch_size // self.cfg.num_minibatches
+        perms = np.stack([np.random.permutation(batch_size) for _ in range(self.cfg.num_epochs)])
+        indices = perms.reshape(self.cfg.num_epochs, self.cfg.num_minibatches, minibatch_size)
 
         # PPO learning steps
         for b_indices in indices:
@@ -214,7 +212,7 @@ class PPO:
                 ratio = (new_log_probs - log_probs[mb_indices]).exp()
                 loss_surrogate_unclipped = -advantages[mb_indices] * ratio
                 loss_surrogate_clipped = -advantages[mb_indices] * \
-                    torch.clamp(ratio, 1.0 - self.config.ppo_clip, 1.0 + self.config.ppo_clip)
+                    torch.clamp(ratio, 1.0 - self.cfg.ppo_clip, 1.0 + self.cfg.ppo_clip)
                 loss_policy = torch.max(loss_surrogate_unclipped, loss_surrogate_clipped).mean()
 
                 # Value loss
@@ -226,14 +224,14 @@ class PPO:
                 # Combine and weight losses
                 loss = (
                     loss_policy +
-                    self.config.value_loss_weight * loss_value +
-                    -self.config.entropy_beta * entropy
+                    self.cfg.value_loss_weight * loss_value +
+                    -self.cfg.entropy_beta * entropy
                 )
 
                 # Network update and global grad norm clip
                 self.optimizer.zero_grad()
                 loss.backward()
-                nn.utils.clip_grad_norm_(self.network.parameters(), self.config.grad_norm_clip)
+                nn.utils.clip_grad_norm_(self.network.parameters(), self.cfg.grad_norm_clip)
                 self.optimizer.step()
 
     def train(self) -> None:
@@ -243,7 +241,7 @@ class PPO:
         self._last_checkpoint_time = time.time()
 
         # Main training loop
-        total_rollouts = self.config.total_steps // (self.config.rollout_steps * self.config.num_envs)
+        total_rollouts = self.cfg.total_steps // (self.cfg.rollout_steps * self.cfg.num_envs)
         for rollout_idx in range(total_rollouts):
             # Perform rollout to gather experience
             experience = self.rollout()
@@ -252,13 +250,13 @@ class PPO:
             self.learn(experience)
 
             # Checkpointing
-            if self.config.checkpoint:
-                if time.time() - self._last_checkpoint_time >= self.config.checkpoint_save_interval_s:
+            if self.cfg.checkpoint:
+                if time.time() - self._last_checkpoint_time >= self.cfg.checkpoint_save_interval_s:
                     self.checkpointer.save(self.logger.current_step, self.network, self.optimizer)
                     self._last_checkpoint_time = time.time()
 
         # Save final trained model
-        if self.config.checkpoint:
+        if self.cfg.checkpoint:
             self.checkpointer.save(self.logger.current_step, self.network, self.optimizer)
 
         self.envs.close()
