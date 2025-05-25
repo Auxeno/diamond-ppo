@@ -58,14 +58,14 @@ All training options can be changed through `PPOConfig`:
 ```python
 from diamond import PPO, PPOConfig
 
-cfg = PPOConfig(
+config = PPOConfig(
     total_steps=1_000_000,
     rollout_steps=128,
     num_envs=8,
     checkpoint=True,
     save_interval=300
 )
-agent = PPO(lambda: gym.make("LunarLander-v3"), cfg=cfg)
+agent = PPO(lambda: gym.make("LunarLander-v3"), cfg=config)
 agent.train()
 ```
 
@@ -93,7 +93,6 @@ class AtariNet(nn.Module):
         x = self.base(x)
         return self.actor_head(x), self.critic_head(x)
 
-# Example usage (Pong)
 agent = PPO(lambda: gym.make("ALE/Pong-v5"), custom_network=AtariNet())
 agent.train()
 ```
@@ -105,6 +104,10 @@ agent.train()
 Conveniently profile sections of your code with the `Timer` utility:
 
 ```python
+from utils import Timer
+
+timer = Timer()
+
 with timer.time("action selection"):
    action = select_action(observations)
 
