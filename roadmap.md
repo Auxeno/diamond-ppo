@@ -1,8 +1,5 @@
 ## PPO Implementation Roadmap
 
-### Document
-- Config in particular
-
 ### Nice readme
 - Swapping environment to pixel-based
 - Shared policy and value functions
