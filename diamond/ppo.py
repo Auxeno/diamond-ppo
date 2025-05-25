@@ -1,4 +1,4 @@
-from typing import Type
+from typing import Type, Callable
 from dataclasses import dataclass
 import time
 import numpy as np
@@ -65,7 +65,7 @@ class ActorCriticNetwork(nn.Module):
 class PPO:
     def __init__(
         self,
-        env_fn: callable,
+        env_fn: Callable[[], gym.Env],
         *,
         cfg: PPOConfig = PPOConfig(),
         custom_network: nn.Module | None = None
