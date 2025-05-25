@@ -290,7 +290,7 @@ class Checkpointer:
         Prefix for checkpoint filenames:  `{run_name}-stepXXXXXX.pt`.
     keep_last : int or None, default None
         Keep only the newest *k* checkpoints.
-        Set to `None` (default) to keep **all**.
+        Set to `None` (default) to keep all.
 
     Examples
     --------
@@ -313,7 +313,6 @@ class Checkpointer:
         keep_last: int | None = None,
     ) -> None:
         self.folder = Path(folder)
-        self.folder.mkdir(parents=True, exist_ok=True)
         self.run_name = run_name
         self.keep_last = keep_last
 
@@ -324,8 +323,9 @@ class Checkpointer:
         optimizer: torch.optim.Optimizer | None = None,
     ) -> None:
         """Save a checkpoint: model (+ optimiser if given)."""
-        fname = f"{self.run_name}-step{step:06d}.pt"
-        path = self.folder / fname
+        self.folder.mkdir(parents=True, exist_ok=True)
+        file_name = f"{self.run_name}-step{step:06d}.pt"
+        path = self.folder / file_name
         payload = {"step": step, "model_state": model.state_dict()}
 
         if optimizer is not None:
