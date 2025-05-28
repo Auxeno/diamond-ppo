@@ -74,7 +74,7 @@ class RecurrentActorCritic(nn.Module):
         self,
         x: torch.Tensor,            # (B, T, *observation_shape)
         hx: torch.Tensor | None,    # (1, B, rnn_hidden_dim) | None
-        dones: torch.Tensor | None  # (B, T) | None
+        dones: torch.Tensor | None  # (B, T)                 | None
     ):
         x = self.base(x)
         x, hx = self.gru(x, hx, dones)
