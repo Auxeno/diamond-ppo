@@ -9,38 +9,16 @@ import gymnasium as gym
 from .utils import Logger, Timer, Checkpointer
 
 
-class RecurrentActorCritic(nn.Module):
-    """Simple recurrent actor-critic network."""
-    def __init__(
-        self, 
-        observation_dim: int, 
-        action_dim: int, 
-        hidden_dim: int = 64, 
-        rnn_hidden_dim: int = 128
-    ):
-        super().__init__()
-        self.base = nn.Sequential(
-            nn.Linear(observation_dim, hidden_dim),
-            nn.Tanh(),
-        )
-        self.gru = nn.GRU(hidden_dim, rnn_hidden_dim, batch_first=True)
-        self.actor_head = nn.Sequential(
-            nn.Linear(rnn_hidden_dim, hidden_dim),
-            nn.Tanh(),
-            nn.Linear(hidden_dim, action_dim)
-        )
-        self.actor_head[-1].weight.data *= 0.01
-        self.critic_head = nn.Sequential(
-            nn.Linear(rnn_hidden_dim, hidden_dim),
-            nn.Tanh(),
-            nn.Linear(hidden_dim, 1)
-        )
+class GRUCore(nn.GRU):
+    """GRU for RL with per-timestep hidden state resets."""
+    def __init__(self, input_dim: int, hidden_dim: int):
+        super().__init__(input_dim, hidden_dim, batch_first=True)
 
-    def _gru_forward(
+    def forward(
         self, 
-        x: torch.Tensor, 
-        hx: torch.Tensor | None, 
-        dones: torch.Tensor | None
+        x: torch.Tensor,            # (B, T, input_dim)
+        hx: torch.Tensor | None,    # (1, B, hidden_dim) | None
+        dones: torch.Tensor | None  # (B, T)             | None
     ):
         # Initialise hidden state and dones if not provided
         batch_size, seq_length = x.shape[:2]
@@ -64,37 +42,43 @@ class RecurrentActorCritic(nn.Module):
         # Concatenate outputs over time dimension
         gru_out = torch.cat(outputs, dim=1)
         return gru_out, hx
+
+class RecurrentActorCritic(nn.Module):
+    """Simple recurrent actor-critic network."""
+    def __init__(
+        self, 
+        observation_dim: int, 
+        action_dim: int, 
+        hidden_dim: int = 64, 
+        rnn_hidden_dim: int = 128
+    ):
+        super().__init__()
+        self.base = nn.Sequential(
+            nn.Linear(observation_dim, hidden_dim),
+            nn.Tanh(),
+        )
+        self.gru = GRUCore(hidden_dim, rnn_hidden_dim)
+        self.actor_head = nn.Sequential(
+            nn.Linear(rnn_hidden_dim, hidden_dim),
+            nn.Tanh(),
+            nn.Linear(hidden_dim, action_dim)
+        )
+        self.actor_head[-1].weight.data *= 0.01
+        self.critic_head = nn.Sequential(
+            nn.Linear(rnn_hidden_dim, hidden_dim),
+            nn.Tanh(),
+            nn.Linear(hidden_dim, 1)
+        )
     
     def forward(
         self,
-        x: torch.Tensor,
-        hx: torch.Tensor | None,
-        dones: torch.Tensor | None
+        x: torch.Tensor,            # (B, T, *observation_shape)
+        hx: torch.Tensor | None,    # (1, B, rnn_hidden_dim) | None
+        dones: torch.Tensor | None  # (B, T) | None
     ):
-        """
-        Forward pass through the recurrent actor-critic network.
-
-        Parameters
-        ----------
-        x : torch.Tensor
-            Observation sequences (batch_size, seq_length, obs_dim).
-        hx : torch.Tensor, optional
-            Initial GRU state (1, batch_size, rnn_hidden_dim).
-        dones : torch.Tensor, optional
-            Done mask (batch_size, seq_length), bool. 
-            If True, resets hidden state at that step.
-
-        Returns
-        -------
-        logits : torch.Tensor
-            Action logits (batch_size, seq_length, action_dim).
-        values : torch.Tensor
-            Value estimates (batch_size, seq_length).
-        hx : torch.Tensor
-            Final GRU hidden state (1, batch_size, rnn_hidden_dim).
-        """
         x = self.base(x)
-        x, hx = self._gru_forward(x, hx, dones)
+        x, hx = self.gru(x, hx, dones)
         logits = self.actor_head(x)
         values = self.critic_head(x).squeeze(-1)
         return logits, values, hx
+
