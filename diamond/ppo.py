@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import time
 import numpy as np
 import torch
-from torch import nn
+from torch import nn, Tensor
 import gymnasium as gym
 
 from .utils import Logger, Timer, Checkpointer
@@ -32,7 +32,6 @@ class PPOConfig:
     verbose: bool = True          # Verbose logging
 
 class ActorCriticNetwork(nn.Module):
-    """Two hidden layer MLP."""
     def __init__(
         self, 
         observation_dim: int, 
@@ -40,25 +39,30 @@ class ActorCriticNetwork(nn.Module):
         hidden_dim: int = 64
     ):
         super().__init__()
-        self.actor = nn.Sequential(
+        self.actor_network = nn.Sequential(
             nn.Linear(observation_dim,  hidden_dim),
             nn.Tanh(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.Tanh(),
             nn.Linear(hidden_dim, action_dim)
         )
-        self.actor[-1].weight.data *= 0.01
-        
-        self.critic = nn.Sequential(
+        self.actor_network[-1].weight.data.mul_(0.01)
+        self.critic_network = nn.Sequential(
             nn.Linear(observation_dim,  hidden_dim),
             nn.Tanh(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.Tanh(),
             nn.Linear(hidden_dim, 1)
         )
+
+    def actor(self, x: Tensor) -> Tensor:
+        return self.actor_network(x)
+    
+    def critic(self, x: Tensor) -> Tensor:
+        return self.critic_network(x).squeeze(-1)
         
-    def forward(self, x) -> tuple[torch.Tensor]:
-        return self.actor(x), self.critic(x)
+    def forward(self, x: Tensor) -> tuple[Tensor]:
+        return self.actor_network(x), self.critic_network(x).squeeze(-1)
 
 class PPO:
     def __init__(
@@ -155,12 +159,12 @@ class PPO:
 
     def calculate_advantage(
         self, 
-        rewards: torch.Tensor, 
-        terminations: torch.Tensor, 
-        truncations: torch.Tensor, 
-        values: torch.Tensor, 
-        next_values: torch.Tensor
-    ) -> torch.Tensor:
+        rewards: Tensor, 
+        terminations: Tensor, 
+        truncations: Tensor, 
+        values: Tensor, 
+        next_values: Tensor
+    ) -> Tensor:
         """
         Calculate advantage with Generalised Advantage Estimation.
         
@@ -209,8 +213,8 @@ class PPO:
         with torch.inference_mode():
             logits = self.network.actor(observations)
             log_probs = torch.distributions.Categorical(logits=logits).log_prob(actions)
-            values = self.network.critic(observations).squeeze(-1)
-            next_values = self.network.critic(next_observations).squeeze(-1)
+            values = self.network.critic(observations)
+            next_values = self.network.critic(next_observations)
 
         # Calculate GAE advantages and returns
         advantages = self.calculate_advantage(rewards, terminations, truncations, values, next_values)
@@ -247,7 +251,7 @@ class PPO:
                 loss_policy = torch.max(loss_surrogate_unclipped, loss_surrogate_clipped).mean()
 
                 # MSE value loss
-                loss_value = 0.5 * torch.nn.functional.mse_loss(new_values.squeeze(1), returns[mb_indices])
+                loss_value = 0.5 * torch.nn.functional.mse_loss(new_values, returns[mb_indices])
 
                 # Entropy regularisation encourages exploration
                 entropy = dist.entropy().mean()

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import time
 import numpy as np
 import torch
-from torch import nn
+from torch import nn, Tensor
 import gymnasium as gym
 
 from .utils import Logger, Timer, Checkpointer
@@ -16,9 +16,9 @@ class GRUCore(nn.GRU):
 
     def forward(
         self, 
-        x: torch.Tensor,            # (B, T, input_dim)
-        hx: torch.Tensor | None,    # (1, B, hidden_dim) | None
-        dones: torch.Tensor | None  # (B, T)             | None
+        x: Tensor,            # (B, T, input_dim)
+        hx: Tensor | None,    # (1, B, hidden_dim) | None
+        dones: Tensor | None  # (B, T)             | None
     ):
         # Initialise hidden state and dones if not provided
         batch_size, seq_length = x.shape[:2]
@@ -44,38 +44,37 @@ class GRUCore(nn.GRU):
         return gru_out, hx
 
 class RecurrentActorCritic(nn.Module):
-    """Simple recurrent actor-critic network."""
     def __init__(
         self, 
         observation_dim: int, 
         action_dim: int, 
         hidden_dim: int = 64, 
-        rnn_hidden_dim: int = 128
+        gru_hidden_dim: int = 128
     ):
         super().__init__()
         self.base = nn.Sequential(
             nn.Linear(observation_dim, hidden_dim),
             nn.Tanh(),
         )
-        self.gru = GRUCore(hidden_dim, rnn_hidden_dim)
+        self.gru = GRUCore(hidden_dim, gru_hidden_dim)
         self.actor_head = nn.Sequential(
-            nn.Linear(rnn_hidden_dim, hidden_dim),
+            nn.Linear(gru_hidden_dim, hidden_dim),
             nn.Tanh(),
             nn.Linear(hidden_dim, action_dim)
         )
         self.actor_head[-1].weight.data *= 0.01
         self.critic_head = nn.Sequential(
-            nn.Linear(rnn_hidden_dim, hidden_dim),
+            nn.Linear(gru_hidden_dim, hidden_dim),
             nn.Tanh(),
             nn.Linear(hidden_dim, 1)
         )
     
     def forward(
         self,
-        x: torch.Tensor,            # (B, T, *observation_shape)
-        hx: torch.Tensor | None,    # (1, B, rnn_hidden_dim) | None
-        dones: torch.Tensor | None  # (B, T)                 | None
-    ):
+        x: Tensor,            # (B, T, *observation_shape)
+        hx: Tensor | None,    # (1, B, gru_hidden_dim) | None
+        dones: Tensor | None  # (B, T)                 | None
+    ) -> tuple[Tensor, Tensor, Tensor]:
         x = self.base(x)
         x, hx = self.gru(x, hx, dones)
         logits = self.actor_head(x)
