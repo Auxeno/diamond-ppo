@@ -68,7 +68,7 @@ agent.train()
 
 ## Custom Network
 
-Custom networks are fully supported, just provide `actor` and `critic` attributes, or modify `ppo.py` if your model structure differs.
+Custom networks are fully supported, just provide `actor` and `critic` methods, or modify `ppo.py` if your model structure differs.
 
 ```python
 class AtariNet(nn.Module):
@@ -78,13 +78,18 @@ class AtariNet(nn.Module):
         self.actor_head = nn.LazyLinear(6)
         self.critic_head = nn.LazyLinear(1)
 
-        # Define actor and critic attributes
-        self.actor = nn.Sequential(self.base, self.actor_head)
-        self.critic = nn.Sequential(self.base, self.critic_head)
+    # Define actor, critic and forward methods
+    def actor(self, x):
+        x = self.base(x)
+        return self.actor_head(x)
+
+    def critic(self, x):
+        x = self.base(x)
+        return self.critic_head(x).squeeze(-1)
 
     def forward(self, x):
         x = self.base(x)
-        return self.actor_head(x), self.critic_head(x)
+        return self.actor_head(x), self.critic_head(x).squeeze(-1)
 
 agent = PPO(lambda: gym.make("ALE/Pong-v5"), custom_network=AtariNet())
 agent.train()
