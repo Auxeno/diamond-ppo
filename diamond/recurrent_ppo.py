@@ -8,6 +8,7 @@ import gymnasium as gym
 
 from .utils import Logger, Timer, Checkpointer
 
+
 @dataclass
 class RecurrentPPOConfig:
     total_steps: int = 400_000    # Total training environment steps
