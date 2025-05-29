@@ -143,8 +143,14 @@ class PPO:
                     if obs is not None: final_observations[obs_idx] = obs
 
             # Store transition in experience buffer
-            experience.append([observations, final_observations, actions, 
-                                rewards, terminations, truncations])
+            experience.append([
+                observations, 
+                final_observations, 
+                actions, 
+                rewards, 
+                terminations, 
+                truncations
+            ])
             
             # Log rewards and done info
             if self.logger is not None:
