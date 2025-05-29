@@ -1,22 +1,18 @@
 ## PPO Implementation Roadmap
 
+### Recurrent PPO Updates
+- Make it easy to use LSTM or GRU
+
 ### Nice readme
 - Add image for plot timings
 
 ### Multi-discrete
 - Support multi-discrete action spaces
 
-### Recurrent PPO
-- Make a Recurrent PPO implementation that supports truncations (can it be done?)
-
 ### Multi-agent PPO
 - Independent PPO
 - Centralised PPO
 - True CTDE MAPPO
-
-### Continuous?
-- Consider whether we want to eventually support continuous action spaces
-- Currently lean towards no, it's not where PPO's strength is
 
 ---
 
