@@ -39,10 +39,10 @@ class GRUCore(nn.GRU):
 
     def forward(
         self, 
-        x: Tensor,            # (T, B, input_dim)
-        hx: Tensor | None,    # (1, B, hidden_dim) | None
-        dones: Tensor | None  # (T, B)             | None
-    ) -> tuple[Tensor, Tensor]:  # (T, B, hidden_dim), (1, B, hidden_dim)
+        x: Tensor,               # (T, B, input_dim)
+        hx: Tensor | None,       # (1, B, H) | None
+        dones: Tensor | None     # (T, B)    | None
+    ) -> tuple[Tensor, Tensor]:  # (T, B, H), (1, B, H)
         # Initialise hidden state and dones if not provided
         seq_length, batch_size = x.shape[:2]
         hx = torch.zeros(
@@ -94,10 +94,10 @@ class RecurrentActorCritic(nn.Module):
     
     def forward(
         self,
-        x: Tensor,            # (T, B, *observation_shape)
-        hx: Tensor | None,    # (1, B, gru_hidden_dim) | None
-        dones: Tensor | None  # (T, B)                 | None
-    ) -> tuple[Tensor, Tensor, Tensor]:
+        x: Tensor,                       # (T, B, *observation_shape)
+        hx: Tensor | None,               # (1, B, H) | None
+        dones: Tensor | None             # (T, B)    | None
+    ) -> tuple[Tensor, Tensor, Tensor]:  # (T, B, A), (T, B), (1, B, H)
         x = self.base(x)
         x, hx = self.gru(x, hx, dones)
         logits = self.actor_head(x)
