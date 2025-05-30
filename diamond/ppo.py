@@ -61,7 +61,7 @@ class ActorCriticNetwork(nn.Module):
     def critic(self, x: Tensor) -> Tensor:
         return self.critic_network(x).squeeze(-1)
         
-    def forward(self, x: Tensor) -> tuple[Tensor]:
+    def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
         return self.actor_network(x), self.critic_network(x).squeeze(-1)
 
 class PPO:
