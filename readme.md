@@ -114,3 +114,20 @@ with timer.time("env step"):
 
 timer.plot_timings()
 ```
+
+---
+
+## Logging
+
+Log data similarly to Tensorboard with the `Logger`:
+
+```python
+from utils import Logger
+
+logger = Logger()
+
+for step in range(num_steps):
+    reward = ...  # compute or obtain reward
+    logger.log("episode_reward", step, reward)
+
+logger.plot("episode_reward")
