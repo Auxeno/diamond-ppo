@@ -6,7 +6,7 @@ import torch
 from torch import nn, Tensor
 import gymnasium as gym
 
-from .utils import Logger, Timer, Checkpointer
+from .utils import Ticker, Logger, Timer, Checkpointer
 
 
 @dataclass
@@ -143,8 +143,12 @@ class RecurrentPPO:
             self.network.parameters(), lr=cfg.learning_rate
         )
 
+        # Track current step
+        self.current_step = 0
+
         # Utilities for logging, timing and checkpointing
-        self.logger = Logger(cfg.total_steps, cfg.num_envs, cfg.rollout_steps)
+        self.ticker = Ticker(cfg.total_steps, cfg.num_envs, cfg.rollout_steps)
+        self.logger = Logger()
         self.timer = Timer()
         self.checkpointer = Checkpointer(folder="models", run_name="test")
 
@@ -204,13 +208,15 @@ class RecurrentPPO:
             ])
             
             # Log rewards and done info
-            if self.logger is not None:
-                self.logger.log(rewards, terminations, truncations)
+            if self.ticker is not None:
+                dones = np.logical_or(terminations, truncations)
+                self.ticker.tick(rewards, dones)
 
             # Update observations and previous dones for next step
             observations = next_observations
             hx = new_hx
             prev_dones = np.logical_or(terminations, truncations)
+            self.current_step += self.cfg.num_envs
 
         # Store last observations for start of next rollout
         self.current_observations = observations
