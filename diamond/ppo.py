@@ -11,10 +11,11 @@ from .utils import Ticker, Logger, Timer, Checkpointer
 
 @dataclass
 class PPOConfig:
-    total_steps: int = 400_000    # Total training environment steps
+    total_steps: int = 1_000_000  # Total training environment steps
     rollout_steps: int = 64       # Number of vectorised steps per rollout
     num_envs: int = 16            # Number of parallel environments
     learning_rate: float = 3e-4   # Optimiser learning rate
+    decay_lr: bool = True         # Linear learning rate decay
     gamma: float = 0.99           # Discount factor
     gae_lambda: float = 0.95      # GAE lambda parameter
     num_epochs: int = 4           # PPO epochs per update
@@ -98,15 +99,25 @@ class PPO:
                 self.envs.single_action_space.n,
                 hidden_dim=cfg.network_hidden_dim
             ).to(self.device)
+
         self.optimizer = torch.optim.Adam(
             self.network.parameters(), lr=cfg.learning_rate
+        )
+
+        # Linear learning rate scheduler
+        self.scheduler = torch.optim.lr_scheduler.LinearLR(
+            self.optimizer,
+            start_factor=1.0,
+            end_factor=0.05 if cfg.decay_lr else 1.0,
+            total_iters=cfg.total_steps // (cfg.num_envs * cfg.rollout_steps)
         )
 
         # Track current step
         self.current_step = 0
 
         # Utilities for logging, timing and checkpointing
-        self.ticker = Ticker(cfg.total_steps, cfg.num_envs, cfg.rollout_steps)
+        self.ticker = Ticker(cfg.total_steps, cfg.num_envs, cfg.rollout_steps,
+                             verbose=cfg.verbose)
         self.logger = Logger()
         self.timer = Timer()
         self.checkpointer = Checkpointer(folder="models", run_name="test")
@@ -281,8 +292,13 @@ class PPO:
                 nn.utils.clip_grad_norm_(self.network.parameters(), self.cfg.grad_norm_clip)
                 self.optimizer.step()
 
+        # Step learning rate scheduler
+        self.scheduler.step()
+
     def train(self) -> None:
         """Train PPO agent."""
+        if self.cfg.verbose: print("Training PPO agent")
+
         # Vectorised reset, get initial observations
         self.current_observations, _ = self.envs.reset(seed=self.cfg.seed)
         last_checkpoint_time = time.time()
