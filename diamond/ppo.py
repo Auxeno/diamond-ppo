@@ -6,7 +6,7 @@ import torch
 from torch import nn, Tensor
 import gymnasium as gym
 
-from .utils import Logger, Timer, Checkpointer
+from .utils import Ticker, Timer, Checkpointer
 
 
 @dataclass
@@ -103,7 +103,7 @@ class PPO:
         )
 
         # Utilities for logging, timing and checkpointing
-        self.logger = Logger(cfg.total_steps, cfg.num_envs, cfg.rollout_steps)
+        self.ticker = Ticker(cfg.total_steps, cfg.num_envs, cfg.rollout_steps)
         self.timer = Timer()
         self.checkpointer = Checkpointer(folder="models", run_name="test")
 
@@ -152,9 +152,10 @@ class PPO:
                 truncations
             ])
             
-            # Log rewards and done info
-            if self.logger is not None:
-                self.logger.log(rewards, terminations, truncations)
+            # Update rewards and done info in ticker
+            if self.ticker is not None:
+                dones = np.logical_or(terminations, truncations)
+                self.ticker.tick(rewards, dones)
 
             # Update observations for next step
             observations = next_observations
