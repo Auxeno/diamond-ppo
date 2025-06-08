@@ -6,7 +6,7 @@ import torch
 from torch import nn, Tensor
 import gymnasium as gym
 
-from .utils import Ticker, Timer, Checkpointer
+from .utils import Ticker, Logger, Timer, Checkpointer
 
 
 @dataclass
@@ -102,11 +102,15 @@ class PPO:
             self.network.parameters(), lr=cfg.learning_rate
         )
 
+        # Track current step
+        self.current_step = 0
+
         # Utilities for logging, timing and checkpointing
         self.ticker = Ticker(cfg.total_steps, cfg.num_envs, cfg.rollout_steps)
+        self.logger = Logger()
         self.timer = Timer()
         self.checkpointer = Checkpointer(folder="models", run_name="test")
-
+        
         self.cfg = cfg
         
     def select_action(self, observations: np.ndarray) -> np.ndarray:
@@ -157,8 +161,9 @@ class PPO:
                 dones = np.logical_or(terminations, truncations)
                 self.ticker.tick(rewards, dones)
 
-            # Update observations for next step
+            # Update observations for next step and step counter
             observations = next_observations
+            self.current_step += self.cfg.num_envs
 
         # Store last observations for start of next rollout
         self.current_observations = observations
