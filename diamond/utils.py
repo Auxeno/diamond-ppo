@@ -1,19 +1,22 @@
 """
 Utility classes.
 """
-from typing import Any
+from typing import Any, Dict, List
 from pathlib import Path
 from contextlib import contextmanager
 import time
 from collections import deque
 import numpy as np
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.io as pio
 import torch
 
 
-class Logger:
+class Ticker:
     """
-    Track episode lengths, returns, steps and print training progress.
+    Used for printing live training progress.
+    Tracks metrics like episode length, return and FPS.
 
     Parameters
     ----------
@@ -34,14 +37,14 @@ class Logger:
 
     Example
     -------
-    >>> logger = Logger(total_steps=1_000_000, num_envs=16, rollout_steps=128)
+    >>> ticker = Ticker(total_steps=1_000_000, num_envs=16, rollout_steps=128)
 
     >>> for _ in range(rollout_steps):
     >>>     ...
     >>>     _, rewards, terminations, truncations, _ = envs.step(actions)
-    >>>     logger.log(rewards, terminations, truncations)
+    >>>     ticker.tick(rewards, dones)
 
-    >>> final_stats = logger.logs
+    >>> final_stats = ticker.logs
     """
     def __init__(
         self,
@@ -89,19 +92,17 @@ class Logger:
             verbose=self.verbose
         )
 
-    def log(
+    def tick(
         self,
         rewards: np.ndarray,
-        terminations: np.ndarray,
-        truncations: np.ndarray,
-        **custom_logs: Any,
+        dones: np.ndarray,
+        **custom_logs: Any
     ) -> None:
-        """Add one vector-env step and any extra scalars to the logger."""
+        """Add one vector-env step and any extra scalars to the ticker."""
         self.current_step += self.num_envs
         self.current_returns += rewards
         self.current_lengths += 1
 
-        dones = np.logical_or(terminations, truncations)
         for ep_return, ep_length in zip(
             self.current_returns[dones], self.current_lengths[dones]
         ):
@@ -208,6 +209,247 @@ class Logger:
         for key in self.custom_logs:
             header += f"  |  {key}"
         print(header)
+
+# Custom dark template for plotly
+pio.templates["umbra"] = go.layout.Template(
+    layout={
+        "paper_bgcolor": "#202020",
+        "plot_bgcolor": "#212121",
+        "font": {"color": "#f0f0f0", "size": 15},
+        "title": {
+            "font": {"size": 24, "color": "#f0f0f0"},
+            "x": 0.04,
+            "xanchor": "left",
+        },
+        "colorway": [
+            "#636EFA",
+            "#EF553B",
+            "#00CC96",
+            "#AB63FA",
+            "#FFA15A",
+            "#19D3F3",
+            "#FF6692",
+            "#B6E880",
+            "#FF97FF",
+            "#FECB52",
+        ],
+        "xaxis": {
+            "gridcolor": "#353535",
+            "linecolor": "#909090",
+            "tickcolor": "#909090",
+            "zerolinecolor": "#505050",
+            "title_standoff": 8,
+            "tickfont": {"size": 14, "color": "#d0d0d0"},
+            "ticklen": 6,
+        },
+        "yaxis": {
+            "gridcolor": "#353535",
+            "linecolor": "#909090",
+            "tickcolor": "#909090",
+            "zerolinecolor": "#505050",
+            "title_standoff": 10,
+            "tickfont": {"size": 12, "color": "#d0d0d0"},
+            "ticklen": 6,
+        },
+        "legend": {
+            "bgcolor": "#363636",
+            "bordercolor": "#505050",
+            "borderwidth": 0,
+            "font": {"color": "#ececec", "size": 15},
+        },
+        "hovermode": "x unified",
+    }
+)
+
+class Logger:
+    """
+    Lightweight, TensorBoard-style scalar logger and Plotly visualizer.
+
+    Allows logging of named scalar values over steps (e.g., rewards, losses) and provides simple, interactive plots for inspection.
+
+    Example
+    -------
+    >>> logger = Logger()
+    >>> for step in range(num_steps):
+    >>>     reward = ...  # compute or obtain reward
+    >>>     logger.log("episode_reward", step, reward)
+    >>> logger.plot("episode_reward")
+    """
+    def __init__(self):
+        self.logs: Dict[str, Dict[str, List[Any]]] = {}
+        self.theme = "umbra"
+
+    def log(self, log_name: str, step: int, value: Any):
+        """
+        Log a single value.
+
+        Parameters
+        ----------
+        name: str
+            Metric/tag name (e.g. 'Episode Reward')
+        step: int
+            Global step (wall-clock, env step, episode idx, etc.)
+        value: Any
+            Numeric scalar
+        """
+        if log_name not in self.logs:
+            self.logs[log_name] = {"steps": [], "values": []}
+        self.logs[log_name]["steps"].append(step)
+        self.logs[log_name]["values"].append(value)
+
+    @staticmethod
+    def _subsample(x: np.ndarray, y: np.ndarray, max_samples: int | None, mode: str = "uniform"):
+        """Uniformly drop points so Plotly remains responsive."""
+        if max_samples is None or len(x) <= max_samples:
+            return x, y
+        if mode == "uniform":
+            idx = np.sort(np.random.choice(len(x), max_samples, replace=False))
+            return x[idx], y[idx]
+        raise ValueError(f"Unknown subsample_mode: {mode}")
+
+    def plot(
+        self,
+        log_name: str,
+        mode: str = "line",
+        scale: str = "linear",
+        max_samples: int | None = 10_000,
+        subsample_mode: str = "uniform",
+    ):
+        """
+        Quick visualiser (line with smoothing slider or scatter).
+
+        Parameters
+        ----------
+        log_name: str
+            Which metric to plot.
+        mode: 'line' | 'scatter'
+            Plotting mode, supported modes listed above.
+        scale: 'linear' | 'log'
+            y-axis scale.
+        max_samples: int | None
+            Cap max samples for performance (None = plot all).
+        subsample_mode: str
+            Currently 'uniform' only.
+        """
+        assert log_name in self.logs, f"No log called {log_name!r}"
+        steps = np.asarray(self.logs[log_name]["steps"])
+        values = np.asarray(self.logs[log_name]["values"])
+
+        fig = go.Figure()
+
+        if mode == "line":
+            if len(values.shape) != 1:
+                raise ValueError(
+                    f"Log: {log_name} has data of shape: {values.shape} which "
+                    "is is incompatible with mode='line'."
+                )
+
+            # Down-sample for interactivity
+            x_plot, y_plot = self._subsample(steps, values, max_samples, subsample_mode)
+
+            # Smoothing windows
+            windows = [1, 5, 20, 100, 500, 2000, 10_000]
+
+            # Convolve once on full data, then sample
+            smoothed_full = [
+                values if w == 1 else np.convolve(values, np.ones(w) / w, mode="same") for w in windows
+            ]
+
+            # Common subsampling indices
+            idx_sub = (
+                np.arange(len(steps))
+                if (max_samples is None or len(steps) <= max_samples)
+                else np.sort(np.random.choice(len(steps), max_samples, replace=False))
+            )
+            x_sub = steps[idx_sub]
+            raw_sub = values[idx_sub]
+            smooth_sub = [s[idx_sub] for s in smoothed_full]
+
+            # Background raw trace (low opacity)
+            fig.add_trace(
+                go.Scatter(
+                    x=x_sub,
+                    y=raw_sub,
+                    mode="lines",
+                    line=dict(width=1, color="#CCCCCC"),
+                    opacity=0.15,
+                    showlegend=False,
+                )
+            )
+            # Foreground smoothed variants
+            for i, sm in enumerate(smooth_sub):
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_sub,
+                        y=sm,
+                        mode="lines",
+                        line=dict(width=2),
+                        opacity=1.0,
+                        showlegend=False,
+                        visible=(i == 0),  # default at first window
+                    )
+                )
+
+            # Interactive slider
+            steps_slider = []
+            for i, w in enumerate(windows):
+                visible = [True] + [j == i for j in range(len(windows))]
+                steps_slider.append(
+                    dict(method="update", args=[{"visible": visible}], label=str(w))
+                )
+            fig.update_layout(
+                sliders=[
+                    dict(
+                        active=0,
+                        currentvalue={"prefix": "Smoothing: "},
+                        pad={"t": 0, "b": 0, "r": 20, "l": 0},
+                        steps=steps_slider,
+                        x=0.67,
+                        y=1.27,
+                        len=0.3,
+                        font=dict(color="white", size=10),
+                        bgcolor="#222222",
+                        bordercolor="#444444",
+                        borderwidth=1,
+                    )
+                ],
+                showlegend=False,
+            )
+
+        elif mode == "scatter":
+            if len(values.shape) != 1:
+                raise ValueError(
+                    f"Log: {log_name} has data of shape: {values.shape} which "
+                    "is is incompatible with mode='scatter'."
+                )
+
+            # Down-sample for interactivity
+            x_plot, y_plot = self._subsample(steps, values, max_samples, subsample_mode)
+
+            fig.add_trace(
+                go.Scatter(
+                    x=x_plot,
+                    y=y_plot,
+                    mode="markers",
+                    name=log_name,
+                    marker=dict(size=4, opacity=0.7),
+                )
+            )
+        else:
+            raise ValueError(f"Unknown mode {mode!r}; use 'line' or 'scatter'.")
+
+        # Axis scaling/styling
+        fig.update_yaxes(type=scale)
+        fig.update_layout(
+            template=self.theme,
+            title=log_name,
+            height=420,
+            width=960,
+            margin=dict(l=40, r=20, t=60, b=40),
+            xaxis_title="Step",
+            yaxis_title=None,
+        )
+        fig.show()
 
 class Timer:
     """
