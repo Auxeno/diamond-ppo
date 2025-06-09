@@ -65,6 +65,14 @@ class ActorCriticNetwork(nn.Module):
     def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
         return self.actor_network(x), self.critic_network(x).squeeze(-1)
 
+def orthogonal_init(model: nn.Module, gain: float = 1.0):
+    """Orthogonal weight and zero bias initialisation scheme."""
+    for m in model.modules():
+        if isinstance(m, nn.Linear):
+            nn.init.orthogonal_(m.weight, gain=gain)
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
+
 class PPO:
     def __init__(
         self,
@@ -99,6 +107,7 @@ class PPO:
                 self.envs.single_action_space.n,
                 hidden_dim=cfg.network_hidden_dim
             ).to(self.device)
+        orthogonal_init(self.network)
 
         self.optimizer = torch.optim.Adam(
             self.network.parameters(), lr=cfg.learning_rate
