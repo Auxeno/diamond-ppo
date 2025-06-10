@@ -107,7 +107,7 @@ class PPO:
                 self.envs.single_action_space.n,
                 hidden_dim=cfg.network_hidden_dim
             ).to(self.device)
-        orthogonal_init(self.network)
+        orthogonal_init(self.network, gain=np.sqrt(2.0))
 
         self.optimizer = torch.optim.Adam(
             self.network.parameters(), lr=cfg.learning_rate
