@@ -151,7 +151,7 @@ class RecurrentPPO:
         orthogonal_init(self.network, gain=np.sqrt(2.0))
 
         self.optimizer = torch.optim.Adam(
-            self.network.parameters(), lr=cfg.learning_rate
+            self.network.parameters(), lr=cfg.learning_rate, eps=1e-5
         )
 
         # Linear learning rate scheduler
