@@ -86,7 +86,6 @@ class RecurrentActorCritic(nn.Module):
             nn.Tanh(),
             nn.Linear(hidden_dim, action_dim)
         )
-        self.actor_head[-1].weight.data.mul_(0.01)
         self.critic_head = nn.Sequential(
             nn.Linear(gru_hidden_dim, hidden_dim),
             nn.Tanh(),
@@ -138,7 +137,7 @@ class RecurrentPPO:
             autoreset_mode="SameStep"
         )
 
-        # Create network and optimiser
+        # Set up network
         if custom_network is not None:
             self.network = custom_network.to(self.device)
         else:
@@ -148,8 +147,12 @@ class RecurrentPPO:
                 hidden_dim=cfg.network_hidden_dim,
                 gru_hidden_dim=cfg.gru_hidden_dim
             ).to(self.device)
-        orthogonal_init(self.network, gain=np.sqrt(2.0))
 
+        # Initialise network params with best practices for PPO
+        orthogonal_init(self.network, gain=np.sqrt(2.0))
+        self.network.actor_head[-1].weight.data.mul_(0.01)
+
+        # Initialise Adam optimiser with smaller epsilon
         self.optimizer = torch.optim.Adam(
             self.network.parameters(), lr=cfg.learning_rate, eps=1e-5
         )
