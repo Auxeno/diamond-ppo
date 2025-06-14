@@ -251,9 +251,8 @@ class PPO:
 
         # Log probs and values before any updates
         with torch.inference_mode():
-            logits = self.network.actor(observations)
+            logits, values = self.network(observations)
             log_probs = torch.distributions.Categorical(logits=logits).log_prob(actions)
-            values = self.network.critic(observations)
             next_values = self.network.critic(next_observations)
 
         # Calculate GAE advantages and returns
