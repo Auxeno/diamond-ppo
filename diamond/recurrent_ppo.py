@@ -86,7 +86,7 @@ class RecurrentActorCritic(nn.Module):
             nn.Tanh(),
             nn.Linear(hidden_dim, action_dim)
         )
-        self.actor_head[-1].weight.data *= 0.01
+        self.actor_head[-1].weight.data.mul_(0.01)
         self.critic_head = nn.Sequential(
             nn.Linear(gru_hidden_dim, hidden_dim),
             nn.Tanh(),

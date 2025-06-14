@@ -40,30 +40,38 @@ class ActorCriticNetwork(nn.Module):
         hidden_dim: int = 64
     ):
         super().__init__()
-        self.actor_network = nn.Sequential(
+        self.base = nn.Sequential(
             nn.Linear(observation_dim,  hidden_dim),
             nn.Tanh(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.Tanh()
+        )
+        self.actor_head = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
             nn.Tanh(),
             nn.Linear(hidden_dim, action_dim)
         )
-        self.actor_network[-1].weight.data.mul_(0.01)
-        self.critic_network = nn.Sequential(
-            nn.Linear(observation_dim,  hidden_dim),
-            nn.Tanh(),
-            nn.Linear(hidden_dim, hidden_dim),
+        self.actor_head[-1].weight.data.mul_(0.01)
+        self.critic_head = nn.Sequential(
+            nn.Linear(hidden_dim,  hidden_dim),
             nn.Tanh(),
             nn.Linear(hidden_dim, 1)
         )
-
+    
     def actor(self, x: Tensor) -> Tensor:
-        return self.actor_network(x)
+        """Returns action logits given observations."""
+        x = self.base(x)
+        return self.actor_head(x)
     
     def critic(self, x: Tensor) -> Tensor:
-        return self.critic_network(x).squeeze(-1)
-        
+        """Returns state value estimates given observations."""
+        x = self.base(x)
+        return self.critic_head(x).squeeze(-1)
+    
     def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
-        return self.actor_network(x), self.critic_network(x).squeeze(-1)
+        """Returns action logits and state values from observations."""
+        x = self.base(x)
+        return self.actor_head(x), self.critic_head(x).squeeze(-1)
 
 def orthogonal_init(model: nn.Module, gain: float = 1.0):
     """Orthogonal weight and zero bias initialisation scheme."""
