@@ -15,7 +15,7 @@ class PPOConfig:
     rollout_steps: int = 64       # Number of vectorised steps per rollout
     num_envs: int = 16            # Number of parallel environments
     learning_rate: float = 3e-4   # Optimiser learning rate
-    decay_lr: bool = True         # Linear learning rate decay
+    decay_lr: bool = False        # Linear learning rate decay
     gamma: float = 0.99           # Discount factor
     gae_lambda: float = 0.95      # GAE lambda parameter
     num_epochs: int = 4           # PPO epochs per update
@@ -119,7 +119,7 @@ class PPO:
         orthogonal_init(self.network, gain=np.sqrt(2.0))
         self.network.actor_head[-1].weight.data.mul_(0.01)
 
-        # Initialise Adam optimiser with smaller epsilon
+        # Initialise Adam optimiser with larger epsilon
         self.optimizer = torch.optim.Adam(
             self.network.parameters(), lr=cfg.learning_rate, eps=1e-5
         )

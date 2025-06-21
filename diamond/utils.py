@@ -1,5 +1,9 @@
 """
-Utility classes.
+Utility classes:
+- Ticker: prints live training progress to console
+- Logger: logging and plotting of training metrics
+- Timer: easily profile sections of code
+- Checkpointer: save and load model training state
 """
 from typing import Any, Dict, List
 from pathlib import Path

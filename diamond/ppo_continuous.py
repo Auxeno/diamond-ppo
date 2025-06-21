@@ -5,105 +5,89 @@ import numpy as np
 import torch
 from torch import nn, Tensor
 import gymnasium as gym
+from gymnasium.spaces import Box
 
 from .utils import Ticker, Logger, Timer, Checkpointer
 
 
 @dataclass
-class RecurrentPPOConfig:
+class PPOConfig:
     total_steps: int = 1_000_000  # Total training environment steps
-    rollout_steps: int = 32       # Number of vectorised steps per rollout
-    num_envs: int = 32            # Number of parallel environments
+    rollout_steps: int = 64       # Number of vectorised steps per rollout
+    num_envs: int = 16            # Number of parallel environments
     learning_rate: float = 3e-4   # Optimiser learning rate
     decay_lr: bool = False        # Linear learning rate decay
     gamma: float = 0.99           # Discount factor
     gae_lambda: float = 0.95      # GAE lambda parameter
-    num_epochs: int = 10          # PPO epochs per update
-    num_minibatches: int = 1      # PPO minibatch updates per epoch
-    ppo_clip: float = 0.15        # PPO clipping epsilon
+    num_epochs: int = 4           # PPO epochs per update
+    num_minibatches: int = 8      # PPO minibatch updates per epoch
+    ppo_clip: float = 0.2         # PPO clipping epsilon
     value_loss_weight = 1.0       # Weight of value loss
     entropy_beta: float = 0.01    # Entropy regularisation coeffient
     advantage_norm: bool = True   # Normalise advantages if true
     grad_norm_clip: float = 0.5   # Global gradient norm clip
     network_hidden_dim: int = 64  # Hidden dim for default MLP
-    gru_hidden_dim: int = 16      # GRU hidden dim
     cuda: bool = False            # Use GPU if available
     seed: int | None = 42         # RNG seed
     checkpoint: bool = False      # Enable model checkpointing
     save_interval: float = 600    # Checkpoint interval (seconds)
     verbose: bool = True          # Verbose logging
 
-class GRUCore(nn.GRU):
-    """GRU for RL with per-timestep hidden state resets."""
-    def __init__(self, input_dim: int, hidden_dim: int):
-        super().__init__(input_dim, hidden_dim)
+class JointNormal(torch.distributions.Normal):
+    def log_prob(self, value: Tensor) -> Tensor:
+        """Return joint log-probability over all action dimensions."""
+        return super().log_prob(value).sum(-1)
 
-    def forward(
-        self, 
-        x: Tensor,               # (T, B, input_dim)
-        hx: Tensor | None,       # (1, B, H) | None
-        dones: Tensor | None     # (T, B)    | None
-    ) -> tuple[Tensor, Tensor]:  # (T, B, H), (1, B, H)
-        # Initialise hidden state and dones if not provided
-        seq_length, batch_size = x.shape[:2]
-        hx = torch.zeros(
-            1, batch_size, self.hidden_size, dtype=x.dtype, device=x.device
-        ) if hx is None else hx
-        dones = torch.zeros(
-            seq_length, batch_size, dtype=torch.bool, device=x.device
-        ) if dones is None else dones
-        
-        # Sequential GRU update loop
-        outputs = []
-        for t in range(seq_length):
-            # Reset hidden state for start of new episodes
-            hx[:, dones[t]] = 0.0
+    def entropy(self) -> Tensor:
+        """Return joint entropy over all action dimensions."""
+        return super().entropy().sum(-1)
 
-            # Step GRU for all environments at this timestep
-            out, hx = super().forward(x[t:t+1], hx)
-            outputs.append(out)
-
-        # Concatenate outputs over time dimension
-        gru_out = torch.concatenate(outputs, dim=0)
-        return gru_out, hx
-
-class RecurrentActorCritic(nn.Module):
+class ActorCriticNetwork(nn.Module):
     def __init__(
         self, 
-        observation_dim: int, 
-        action_dim: int, 
-        hidden_dim: int = 64, 
-        gru_hidden_dim: int = 64
+        observation_space: Box, 
+        action_space: Box, 
+        hidden_dim: int = 64
     ):
         super().__init__()
         self.base = nn.Sequential(
-            nn.Linear(observation_dim, hidden_dim),
+            nn.Linear(int(np.prod(observation_space.shape)),  hidden_dim),
             nn.Tanh(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.Tanh()
         )
-        self.gru = GRUCore(hidden_dim, gru_hidden_dim)
-        self.actor_head = nn.Sequential(
-            nn.Linear(gru_hidden_dim, hidden_dim),
+        self.actor_mean_head = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
             nn.Tanh(),
-            nn.Linear(hidden_dim, action_dim)
+            nn.Linear(hidden_dim, int(np.prod(action_space.shape)))
         )
+        self.actor_log_std = nn.Parameter(torch.zeros(1,int(np.prod(action_space.shape))))
         self.critic_head = nn.Sequential(
-            nn.Linear(gru_hidden_dim, hidden_dim),
+            nn.Linear(hidden_dim,  hidden_dim),
             nn.Tanh(),
             nn.Linear(hidden_dim, 1)
         )
     
-    def forward(
-        self,
-        x: Tensor,                       # (T, B, *observation_shape)
-        hx: Tensor | None,               # (1, B, H) | None
-        dones: Tensor | None             # (T, B)    | None
-    ) -> tuple[Tensor, Tensor, Tensor]:  # (T, B, A), (T, B), (1, B, H)
+    def actor(self, x: Tensor) -> tuple[Tensor, Tensor]:
+        """Returns action mean and log std."""
         x = self.base(x)
-        x, hx = self.gru(x, hx, dones)
-        logits = self.actor_head(x)
-        values = self.critic_head(x).squeeze(-1)
-        return logits, values, hx
+        mean = self.actor_mean_head(x)
+        log_std = torch.broadcast_to(self.actor_log_std, mean.shape)
+        return mean, log_std
     
+    def critic(self, x: Tensor) -> Tensor:
+        """Returns state value estimates given observations."""
+        x = self.base(x)
+        return self.critic_head(x).squeeze(-1)
+    
+    def forward(self, x: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+        """Returns action logits and state values from observations."""
+        x = self.base(x)
+        mean = self.actor_mean_head(x)
+        log_std = torch.broadcast_to(self.actor_log_std, mean.shape)
+        value = self.critic_head(x).squeeze(-1)
+        return mean, log_std, value
+
 def orthogonal_init(model: nn.Module, gain: float = 1.0):
     """Orthogonal weight and zero bias initialisation scheme."""
     for m in model.modules():
@@ -112,12 +96,12 @@ def orthogonal_init(model: nn.Module, gain: float = 1.0):
             if m.bias is not None:
                 nn.init.zeros_(m.bias)
 
-class RecurrentPPO:
+class PPO:
     def __init__(
         self,
         env_fn: Callable[[], gym.Env],
         *,
-        cfg: RecurrentPPOConfig = RecurrentPPOConfig(),
+        cfg: PPOConfig = PPOConfig(),
         custom_network: nn.Module | None = None
     ):
         # Device selection
@@ -141,16 +125,14 @@ class RecurrentPPO:
         if custom_network is not None:
             self.network = custom_network.to(self.device)
         else:
-            self.network = RecurrentActorCritic(
-                np.prod(self.envs.single_observation_space.shape),
-                self.envs.single_action_space.n,
-                hidden_dim=cfg.network_hidden_dim,
-                gru_hidden_dim=cfg.gru_hidden_dim
+            self.network = ActorCriticNetwork(
+                self.envs.single_observation_space,
+                self.envs.single_action_space,
+                hidden_dim=cfg.network_hidden_dim
             ).to(self.device)
 
         # Initialise network params with best practices for PPO
         orthogonal_init(self.network, gain=np.sqrt(2.0))
-        self.network.actor_head[-1].weight.data.mul_(0.01)
 
         # Initialise Adam optimiser with larger epsilon
         self.optimizer = torch.optim.Adam(
@@ -174,32 +156,35 @@ class RecurrentPPO:
         self.logger = Logger()
         self.timer = Timer()
         self.checkpointer = Checkpointer(folder="models", run_name="test")
-
+        
         self.cfg = cfg
+        
+    def select_action(self, observations: np.ndarray) -> np.ndarray:
+        """Sample discrete actions from current policy."""
+        # Forward pass with policy network
+        observations_tensor = torch.as_tensor(
+            observations, dtype=torch.float32, device=self.device
+        )
+        with torch.inference_mode():
+            mean, log_std = self.network.actor(observations_tensor)
+
+        # Boltzmann action selection
+        actions = JointNormal(loc=mean, scale=log_std.exp()).sample()
+        return actions.cpu().numpy()
 
     def rollout(self) -> list[list[np.ndarray]]:
         """Collect a single rollout of experience across all vectorised envs."""
         experience = []
 
-        # Observations, hx and done from initial reset or end of last rollout
+        # Observations from initial reset or end of last rollout
         observations = self.current_observations
-        hx = self.current_hx
-        prev_dones = self.prev_dones
-        
-        for step_idx in range(self.cfg.rollout_steps):
 
-            # Network forward pass, obtain actions, log probs and values
-            observations_tensor = torch.as_tensor(observations[None, ...], dtype=torch.float32, device=self.device)
-            prev_dones_tensor = torch.as_tensor(prev_dones[None, ...], dtype=torch.bool, device=self.device)
-            with torch.inference_mode():
-                logits, values, new_hx = self.network(observations_tensor, hx, prev_dones_tensor)
-            dist = torch.distributions.Categorical(logits=logits.squeeze(0))
-            actions_tensor = dist.sample()
-            log_probs = dist.log_prob(actions_tensor)
-            
+        for step_idx in range(self.cfg.rollout_steps):
+            actions = self.select_action(observations)
+
             # Vectorised environment step
             next_observations, rewards, terminations, truncations, infos = \
-                self.envs.step(actions_tensor.cpu().numpy())
+                self.envs.step(actions)
             
             # Handle next states in automatically reset environments
             final_observations = next_observations.copy()
@@ -207,44 +192,27 @@ class RecurrentPPO:
                 for obs_idx, obs in enumerate(infos["final_obs"]):
                     if obs is not None: final_observations[obs_idx] = obs
 
-            # Get next values
-            final_observations_tensor = torch.as_tensor(final_observations[None, ...], dtype=torch.float32, device=self.device)
-            with torch.inference_mode():
-                _, next_values, _ = self.network(
-                    final_observations_tensor, 
-                    new_hx,
-                    dones=None
-                )
-
             # Store transition in experience buffer
             experience.append([
-                observations_tensor.squeeze(0),
-                actions_tensor,
-                rewards,
-                terminations,
-                truncations,
-                prev_dones_tensor.squeeze(0),
-                log_probs,
-                values.squeeze(0),
-                next_values.squeeze(0),
-                hx
+                observations, 
+                final_observations, 
+                actions, 
+                rewards, 
+                terminations, 
+                truncations
             ])
             
-            # Log rewards and done info
+            # Update rewards and done info in ticker
             if self.ticker is not None:
                 dones = np.logical_or(terminations, truncations)
                 self.ticker.tick(rewards, dones)
 
-            # Update observations and previous dones for next step
+            # Update observations for next step and step counter
             observations = next_observations
-            hx = new_hx
-            prev_dones = np.logical_or(terminations, truncations)
             self.current_step += self.cfg.num_envs
 
         # Store last observations for start of next rollout
         self.current_observations = observations
-        self.current_hx = hx
-        self.prev_dones = prev_dones
         return experience
 
     def calculate_advantage(
@@ -290,18 +258,20 @@ class RecurrentPPO:
 
     def learn(self, experience: list[list[np.ndarray]]) -> None:
         """Update policy and value networks using collected experience."""
-        # Unpack and convert experience
-        observations, actions, rewards, terminations, truncations, prev_dones, log_probs, values, next_values, hx = zip(*experience)
-        observations = torch.stack(observations)
-        actions = torch.stack(actions)
+        # Unpack experience and convert to PyTorch tensors
+        observations, next_observations, actions, rewards, terminations, truncations = zip(*experience)
+        observations = torch.as_tensor(np.asarray(observations), dtype=torch.float32, device=self.device)
+        next_observations = torch.as_tensor(np.asarray(next_observations), dtype=torch.float32, device=self.device)
+        actions = torch.as_tensor(np.asarray(actions), dtype=torch.float32, device=self.device)
         rewards = torch.as_tensor(np.asarray(rewards), dtype=torch.float32, device=self.device)
         terminations = torch.as_tensor(np.asarray(terminations), dtype=torch.float32, device=self.device)
         truncations = torch.as_tensor(np.asarray(truncations), dtype=torch.float32, device=self.device)
-        prev_dones = torch.stack(prev_dones)
-        log_probs = torch.stack(log_probs)
-        values = torch.stack(values)
-        next_values = torch.stack(next_values)
-        hx = hx[0].clone()
+
+        # Log probs and values before any updates
+        with torch.inference_mode():
+            means, log_stds, values = self.network(observations)
+            log_probs = JointNormal(loc=means, scale=log_stds.exp()).log_prob(actions)
+            next_values = self.network.critic(next_observations)
 
         # Calculate GAE advantages and returns
         advantages = self.calculate_advantage(rewards, terminations, truncations, values, next_values)
@@ -311,10 +281,10 @@ class RecurrentPPO:
         if self.cfg.advantage_norm:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        # Merge step and environment dims of tensors
+        # Merge step and environment dims of each tensor
         flatten = lambda x: x.reshape(-1, *x.shape[2:])
-        log_probs, actions, advantages, returns, values = \
-            map(flatten, [log_probs, actions, advantages, returns, values])
+        observations, log_probs, actions, advantages, returns, values = \
+            map(flatten, [observations, log_probs, actions, advantages, returns, values])
 
         # Generate random indices, shape=(num_epochs, num_minibatches, minibatch_size)
         batch_size = self.cfg.rollout_steps * self.cfg.num_envs
@@ -325,15 +295,11 @@ class RecurrentPPO:
         # PPO update loop: multiple epochs and minibatches
         for b_indices in indices:
             for mb_indices in b_indices:
-                # Full forward pass with current network parameters
-                new_logits, new_values, _ = self.network(observations, hx, prev_dones)
-                
-                # Flatten and slice minibatch indices
-                new_logits, new_values = map(flatten, [new_logits, new_values])
-                new_logits, new_values = new_logits[mb_indices], new_values[mb_indices]
+                # Forward pass with current network parameters
+                new_means, new_log_stds, new_values = self.network(observations[mb_indices])
 
                 # Compute PPO clipped policy loss
-                dist = torch.distributions.Categorical(logits=new_logits)
+                dist = JointNormal(loc=new_means, scale=new_log_stds.exp())
                 new_log_probs = dist.log_prob(actions[mb_indices])
                 ratio = (new_log_probs - log_probs[mb_indices]).exp()
                 loss_surrogate_unclipped = -advantages[mb_indices] * ratio
@@ -364,13 +330,11 @@ class RecurrentPPO:
         self.scheduler.step()
 
     def train(self) -> None:
-        """Train Recurrent PPO agent."""
-        if self.cfg.verbose: print("Training recurrent PPO agent")
-        
-        # Vectorised reset, get initial observations, set initial dones and hx
+        """Train PPO agent."""
+        if self.cfg.verbose: print("Training PPO agent")
+
+        # Vectorised reset, get initial observations
         self.current_observations, _ = self.envs.reset(seed=self.cfg.seed)
-        self.prev_dones = np.zeros(self.cfg.num_envs, dtype=bool)
-        self.current_hx = torch.zeros(1, self.cfg.num_envs, self.cfg.gru_hidden_dim, device=self.device)
         last_checkpoint_time = time.time()
 
         # Compute number of rollouts to reach total steps
