@@ -14,7 +14,7 @@ class PPOConfig:
     total_steps: int = 1_000_000  # Total training environment steps
     rollout_steps: int = 64       # Number of vectorised steps per rollout
     num_envs: int = 16            # Number of parallel environments
-    learning_rate: float = 3e-4   # Optimiser learning rate
+    lr: float = 3e-4              # Optimiser learning rate
     decay_lr: bool = False        # Linear learning rate decay
     gamma: float = 0.99           # Discount factor
     gae_lambda: float = 0.95      # GAE lambda parameter
@@ -121,11 +121,11 @@ class PPO:
 
         # Initialise Adam optimiser with larger epsilon
         self.optimizer = torch.optim.Adam(
-            self.network.parameters(), lr=cfg.learning_rate, eps=1e-5
+            self.network.parameters(), lr=cfg.lr, eps=1e-5
         )
 
         # Linear learning rate scheduler
-        self.scheduler = torch.optim.lr_scheduler.LinearLR(
+        self.lr_scheduler = torch.optim.lr_scheduler.LinearLR(
             self.optimizer,
             start_factor=1.0,
             end_factor=0.05 if cfg.decay_lr else 1.0,
@@ -312,7 +312,7 @@ class PPO:
                 self.optimizer.step()
 
         # Step learning rate scheduler
-        self.scheduler.step()
+        self.lr_scheduler.step()
 
     def train(self) -> None:
         """Train PPO agent."""
