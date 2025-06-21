@@ -11,7 +11,7 @@ from .utils import Ticker, Logger, Timer, Checkpointer
 
 
 @dataclass
-class PPOConfig:
+class ContinuousPPOConfig:
     total_steps: int = 1_000_000  # Total training environment steps
     rollout_steps: int = 64       # Number of vectorised steps per rollout
     num_envs: int = 16            # Number of parallel environments
@@ -96,12 +96,12 @@ def orthogonal_init(model: nn.Module, gain: float = 1.0):
             if m.bias is not None:
                 nn.init.zeros_(m.bias)
 
-class PPO:
+class ContinuousPPO:
     def __init__(
         self,
         env_fn: Callable[[], gym.Env],
         *,
-        cfg: PPOConfig = PPOConfig(),
+        cfg: ContinuousPPOConfig = ContinuousPPOConfig(),
         custom_network: nn.Module | None = None
     ):
         # Device selection
