@@ -152,7 +152,7 @@ class RecurrentPPO:
         orthogonal_init(self.network, gain=np.sqrt(2.0))
         self.network.actor_head[-1].weight.data.mul_(0.01)
 
-        # Initialise Adam optimiser with smaller epsilon
+        # Initialise Adam optimiser with larger epsilon
         self.optimizer = torch.optim.Adam(
             self.network.parameters(), lr=cfg.learning_rate, eps=1e-5
         )
