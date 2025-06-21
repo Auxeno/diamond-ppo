@@ -56,7 +56,7 @@ class Ticker:
         num_envs: int,
         rollout_steps: int,
         *,
-        window_size: int = 20,
+        window_size: int = 100,
         print_every: int = 5,
         num_checkpoints: int = 20,
         verbose: bool = True
