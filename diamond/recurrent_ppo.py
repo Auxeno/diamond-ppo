@@ -304,11 +304,13 @@ class RecurrentPPO:
         returns = values + advantages
         if self.cfg.advantage_norm:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-
-        # Merge step and environment dims of tensors
+        
+        # Merge step and environment dims of each tensor
         flatten = lambda x: x.reshape(-1, *x.shape[2:])
-        log_probs, actions, advantages, returns, values = \
-            map(flatten, [log_probs, actions, advantages, returns, values])
+        log_probs, actions, advantages, returns, values = [
+            flatten(x)
+            for x in (log_probs, actions, advantages, returns, values)
+        ]
 
         # Generate random indices, shape=(num_epochs, num_minibatches, minibatch_size)
         batch_size = self.cfg.rollout_steps * self.cfg.num_envs
@@ -323,7 +325,7 @@ class RecurrentPPO:
                 new_logits, new_values, _ = self.network(observations, hx, prev_dones)
                 
                 # Flatten and slice minibatch indices
-                new_logits, new_values = map(flatten, [new_logits, new_values])
+                new_logits, new_values = [flatten(x) for x in [new_logits, new_values]]
                 new_logits, new_values = new_logits[mb_indices], new_values[mb_indices]
 
                 # Compute PPO clipped policy loss
@@ -353,10 +355,7 @@ class RecurrentPPO:
         self.lr_scheduler.step()
 
     def train(self) -> None:
-        """Train recurrent PPO agent..."""
-        if self.cfg.verbose: print("Training recurrent PPO agent")
-        
-        # Vectorised reset, get initial observations, set initial dones and hx
+        """Train recurrent PPO agent."""
         self.current_observations, _ = self.envs.reset(seed=self.cfg.seed)
         self.prev_dones = np.zeros(self.cfg.num_envs, dtype=bool)
         self.current_hx = torch.zeros(1, self.cfg.num_envs, self.cfg.gru_hidden_dim, device=self.device)

@@ -257,9 +257,10 @@ class PPO:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         # Merge step and environment dims of each tensor
-        flatten = lambda x: x.reshape(-1, *x.shape[2:])
-        observations, log_probs, actions, advantages, returns, values = \
-            map(flatten, [observations, log_probs, actions, advantages, returns, values])
+        observations, log_probs, actions, advantages, returns, values = [
+            x.reshape(-1, *x.shape[2:])
+            for x in (observations, log_probs, actions, advantages, returns, values)
+        ]
 
         # Generate random indices, shape: (num_epochs, num_minibatches, minibatch_size)
         batch_size = self.cfg.rollout_steps * self.cfg.num_envs
