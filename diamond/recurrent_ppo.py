@@ -108,7 +108,7 @@ class RecurrentActorCritic(nn.Module):
         dones: Tensor | None             # (T, B)    | None
     ) -> tuple[Tensor, Tensor, Tensor]:  # (T, B, A), (T, B), (1, B, H)
         x = self.base(x)
-        x, hx = self.gru(x, hx, dones)
+        x, hx = self.gru.forward(x, hx, dones)
         logits = self.actor_head(x)
         values = self.critic_head(x).squeeze(-1)
         return logits, values, hx
@@ -129,9 +129,7 @@ class RecurrentPPO:
         cfg: RecurrentPPOConfig = RecurrentPPOConfig(),
         custom_network: nn.Module | None = None
     ) -> None:
-        self.device = torch.device(
-            "cuda" if cfg.cuda and torch.cuda.is_available() else "cpu"
-        )
+        self.device = torch.device("cuda" if cfg.cuda and torch.cuda.is_available() else "cpu")
 
         if cfg.seed is not None:
             np.random.seed(cfg.seed)
@@ -157,9 +155,7 @@ class RecurrentPPO:
         orthogonal_init_(self.network, gain=sqrt(2.0))
         self.network.actor_head[-1].weight.data.mul_(0.01)
 
-        self.optimizer = torch.optim.Adam(
-            self.network.parameters(), lr=cfg.lr, eps=cfg.adam_eps
-        )
+        self.optimizer = torch.optim.Adam(self.network.parameters(), lr=cfg.lr, eps=cfg.adam_eps)
 
         self.lr_scheduler = torch.optim.lr_scheduler.LinearLR(
             self.optimizer,

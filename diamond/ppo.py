@@ -100,9 +100,7 @@ class PPO:
         cfg: PPOConfig = PPOConfig(),
         custom_network: nn.Module | None = None
     ) -> None:
-        self.device = torch.device(
-            "cuda" if cfg.cuda and torch.cuda.is_available() else "cpu"
-        )
+        self.device = torch.device("cuda" if cfg.cuda and torch.cuda.is_available() else "cpu")
 
         if cfg.seed is not None:
             np.random.seed(cfg.seed)
@@ -127,9 +125,7 @@ class PPO:
         orthogonal_init_(self.network, gain=sqrt(2.0))
         self.network.actor_head[-1].weight.data.mul_(0.01)
 
-        self.optimizer = torch.optim.Adam(
-            self.network.parameters(), lr=cfg.lr, eps=cfg.adam_eps
-        )
+        self.optimizer = torch.optim.Adam(self.network.parameters(), lr=cfg.lr, eps=cfg.adam_eps)
 
         self.lr_scheduler = torch.optim.lr_scheduler.LinearLR(
             self.optimizer,
@@ -240,8 +236,6 @@ class PPO:
 
     def learn(self, experience: list[list[np.ndarray]]) -> None:
         """Update policy and value networks using collected experience."""
-
-        # Unpack experience and convert to PyTorch tensors
         observations, next_observations, actions, rewards, terminations, truncations = zip(*experience)
         observations = torch.as_tensor(np.asarray(observations), dtype=torch.float32, device=self.device)
         next_observations = torch.as_tensor(np.asarray(next_observations), dtype=torch.float32, device=self.device)
