@@ -3,5 +3,5 @@ notes.txt
 *pycache*
 .DS_Store
 models/*
-!/notebooks/*.ipynb
+
 !models/.gitkeep
