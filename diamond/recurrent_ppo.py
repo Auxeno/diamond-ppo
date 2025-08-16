@@ -37,6 +37,7 @@ class RecurrentPPOConfig:
     save_interval: float = 600      # checkpoint interval (seconds)
     verbose: bool = True            # verbose logging
 
+
 class GRUCore(nn.GRU):
     """GRU for RL with per-timestep hidden state resets."""
     def __init__(self, input_dim: int, hidden_dim: int) -> None:
@@ -70,6 +71,7 @@ class GRUCore(nn.GRU):
         # Concatenate outputs over time dimension
         gru_out = torch.concatenate(outputs, dim=0)
         return gru_out, hx
+
 
 class RecurrentActorCritic(nn.Module):
     def __init__(
@@ -120,6 +122,7 @@ def orthogonal_init_(model: nn.Module, gain: float = 1.0) -> None:
             nn.init.orthogonal_(m.weight, gain=gain)
             if m.bias is not None:
                 nn.init.zeros_(m.bias)
+
 
 class RecurrentPPO:
     def __init__(

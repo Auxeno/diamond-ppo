@@ -106,6 +106,7 @@ def orthogonal_init_(model: nn.Module, gain: float = 1.0) -> None:
             if m.bias is not None:
                 nn.init.zeros_(m.bias)
 
+
 class ContinuousPPO:
     def __init__(
         self,
