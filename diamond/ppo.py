@@ -85,11 +85,12 @@ class ActorCriticNetwork(nn.Module):
 
 def orthogonal_init_(model: nn.Module, gain: float = 1.0) -> None:
     """Orthogonal weight and zero bias initialisation scheme."""
-    for m in model.modules():
-        if isinstance(m, nn.Linear):
-            nn.init.orthogonal_(m.weight, gain=gain)
-            if m.bias is not None:
-                nn.init.zeros_(m.bias)
+    with torch.no_grad():
+        for m in model.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.orthogonal_(m.weight, gain=gain)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
 
 class PPO:
@@ -123,7 +124,7 @@ class PPO:
 
         # Initialise network params with best practices for PPO
         orthogonal_init_(self.network, gain=sqrt(2.0))
-        self.network.actor_head[-1].weight.data.mul_(0.01)
+        self.network.actor_head[-1].weight.data.mul_(0.01)  # type: ignore
 
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=cfg.lr, eps=cfg.adam_eps)
 
@@ -147,7 +148,7 @@ class PPO:
         """Sample discrete actions from current policy."""
         observations_tensor = torch.as_tensor(observations, dtype=torch.float32, device=self.device)
         with torch.inference_mode():
-            logits = self.network.actor(observations_tensor)
+            logits = self.network.actor(observations_tensor)  # type: ignore
 
         # Boltzmann action selection
         actions = torch.distributions.Categorical(logits=logits).sample()
@@ -248,7 +249,7 @@ class PPO:
         with torch.inference_mode():
             logits, values = self.network(observations)
             log_probs = torch.distributions.Categorical(logits=logits).log_prob(actions)
-            next_values = self.network.critic(next_observations)
+            next_values = self.network.critic(next_observations)  # type: ignore
 
         advantages = self.calculate_advantage(rewards, terminations, truncations, values, next_values)
         returns = values + advantages

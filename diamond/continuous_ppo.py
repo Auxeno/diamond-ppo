@@ -100,11 +100,12 @@ class ActorCriticNetwork(nn.Module):
 
 def orthogonal_init_(model: nn.Module, gain: float = 1.0) -> None:
     """Orthogonal weight and zero bias initialisation scheme."""
-    for m in model.modules():
-        if isinstance(m, nn.Linear):
-            nn.init.orthogonal_(m.weight, gain=gain)
-            if m.bias is not None:
-                nn.init.zeros_(m.bias)
+    with torch.no_grad():
+        for m in model.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.orthogonal_(m.weight, gain=gain)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
 
 class ContinuousPPO:
@@ -161,7 +162,7 @@ class ContinuousPPO:
         """Sample continuous actions from current policy."""
         observations_tensor = torch.as_tensor(observations, dtype=torch.float32, device=self.device)
         with torch.inference_mode():
-            mean, log_std = self.network.actor(observations_tensor)
+            mean, log_std = self.network.actor(observations_tensor)  # type: ignore
 
         # Boltzmann action selection
         actions = JointNormal(loc=mean, scale=log_std.exp()).sample()
@@ -262,7 +263,7 @@ class ContinuousPPO:
         with torch.inference_mode():
             means, log_stds, values = self.network(observations)
             log_probs = JointNormal(loc=means, scale=log_stds.exp()).log_prob(actions)
-            next_values = self.network.critic(next_observations)
+            next_values = self.network.critic(next_observations)  # type: ignore
 
         # Calculate GAE advantages and returns
         advantages = self.calculate_advantage(rewards, terminations, truncations, values, next_values)

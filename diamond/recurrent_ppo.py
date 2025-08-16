@@ -47,7 +47,7 @@ class GRUCore(nn.GRU):
         self, 
         x: Tensor,               # (T, B, input_dim)
         hx: Tensor | None,       # (1, B, H) | None
-        dones: Tensor | None     # (T, B)    | None
+        dones: Tensor | None     # (T, B) | None
     ) -> tuple[Tensor, Tensor]:  # (T, B, H), (1, B, H)
         # Initialise hidden state and dones if not provided
         seq_length, batch_size = x.shape[:2]
@@ -107,7 +107,7 @@ class RecurrentActorCritic(nn.Module):
         self,
         x: Tensor,                       # (T, B, *observation_shape)
         hx: Tensor | None,               # (1, B, H) | None
-        dones: Tensor | None             # (T, B)    | None
+        dones: Tensor | None             # (T, B) | None
     ) -> tuple[Tensor, Tensor, Tensor]:  # (T, B, A), (T, B), (1, B, H)
         x = self.base(x)
         x, hx = self.gru.forward(x, hx, dones)
@@ -115,13 +115,15 @@ class RecurrentActorCritic(nn.Module):
         values = self.critic_head(x).squeeze(-1)
         return logits, values, hx
     
+
 def orthogonal_init_(model: nn.Module, gain: float = 1.0) -> None:
     """Orthogonal weight and zero bias initialisation scheme."""
-    for m in model.modules():
-        if isinstance(m, nn.Linear):
-            nn.init.orthogonal_(m.weight, gain=gain)
-            if m.bias is not None:
-                nn.init.zeros_(m.bias)
+    with torch.no_grad():
+        for m in model.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.orthogonal_(m.weight, gain=gain)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
 
 class RecurrentPPO:
@@ -156,7 +158,7 @@ class RecurrentPPO:
 
         # Initialise network params with best practices for PPO
         orthogonal_init_(self.network, gain=sqrt(2.0))
-        self.network.actor_head[-1].weight.data.mul_(0.01)
+        self.network.actor_head[-1].weight.data.mul_(0.01)  # type: ignore
 
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=cfg.lr, eps=cfg.adam_eps)
 
