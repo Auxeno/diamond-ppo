@@ -11,10 +11,10 @@
 
 ---
 
-Diamond PPO aims to be a clean and minimal PyTorch implementation of Proximal Policy Optimisation ([Schulman et al. 2017](https://arxiv.org/abs/1707.06347)), designed for rapid research and experimentation.  
+Diamond PPO aims to be a clean and minimal PyTorch implementation of Proximal Policy Optimisation ([Schulman et al. 2017](https://arxiv.org/abs/1707.06347)), designed for research and experimentation.  
 
 - Built for modern Gymnasium environments (with full truncation support)
-- Easy integration with your own custom neural networks (discrete action spaces)
+- Easy integration with your own custom neural networks
 - Reproducibility via RNG seeding
 - Optional lightweight utilities for logging, profiling, and checkpointing
 

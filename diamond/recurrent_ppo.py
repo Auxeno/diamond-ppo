@@ -1,41 +1,45 @@
-from typing import Callable
-from dataclasses import dataclass
 import time
+from dataclasses import dataclass
+from math import sqrt
+from typing import Callable
+
+import gymnasium as gym
 import numpy as np
 import torch
+from gymnasium.spaces import Space, Box, Discrete
 from torch import nn, Tensor
-import gymnasium as gym
 
 from .utils import Ticker, Logger, Timer, Checkpointer
 
 
 @dataclass
 class RecurrentPPOConfig:
-    total_steps: int = 1_000_000  # Total training environment steps
-    rollout_steps: int = 32       # Number of vectorised steps per rollout
-    num_envs: int = 32            # Number of parallel environments
-    lr: float = 3e-4              # Optimiser learning rate
-    decay_lr: bool = False        # Linear learning rate decay
-    gamma: float = 0.99           # Discount factor
-    gae_lambda: float = 0.95      # GAE lambda parameter
-    num_epochs: int = 10          # PPO epochs per update
-    num_minibatches: int = 1      # PPO minibatch updates per epoch
-    ppo_clip: float = 0.15        # PPO clipping epsilon
-    value_loss_weight = 1.0       # Weight of value loss
-    entropy_beta: float = 0.01    # Entropy regularisation coeffient
-    advantage_norm: bool = True   # Normalise advantages if true
-    grad_norm_clip: float = 0.5   # Global gradient norm clip
-    network_hidden_dim: int = 64  # Hidden dim for default MLP
-    gru_hidden_dim: int = 16      # GRU hidden dim
-    cuda: bool = False            # Use GPU if available
-    seed: int | None = 42         # RNG seed
-    checkpoint: bool = False      # Enable model checkpointing
-    save_interval: float = 600    # Checkpoint interval (seconds)
-    verbose: bool = True          # Verbose logging
+    total_steps: int = 1_000_000    # total training environment steps
+    rollout_steps: int = 32         # number of vectorised steps per rollout
+    num_envs: int = 32              # number of parallel environments
+    lr: float = 3e-4                # Adam optimiser learning rate
+    adam_eps: float = 1e-5          # Adam optimiser epsilon
+    decay_lr: bool = False          # linear learning rate decay
+    gamma: float = 0.99             # discount factor
+    gae_lambda: float = 0.95        # GAE lambda parameter
+    num_epochs: int = 10            # PPO epochs per update
+    num_minibatches: int = 1        # PPO minibatch updates per epoch
+    ppo_clip: float = 0.15          # PPO clipping epsilon
+    value_loss_weight: float = 1.0  # weight of value loss
+    entropy_beta: float = 0.01      # entropy regularisation coeffient
+    advantage_norm: bool = True     # normalise advantages if true
+    grad_norm_clip: float = 0.5     # global gradient norm clip
+    network_hidden_dim: int = 64    # hidden dim for default MLP
+    gru_hidden_dim: int = 16        # GRU hidden dim
+    cuda: bool = False              # use GPU if available
+    seed: int | None = 42           # RNG seed
+    checkpoint: bool = False        # enable model checkpointing
+    save_interval: float = 600      # checkpoint interval (seconds)
+    verbose: bool = True            # verbose logging
 
 class GRUCore(nn.GRU):
     """GRU for RL with per-timestep hidden state resets."""
-    def __init__(self, input_dim: int, hidden_dim: int):
+    def __init__(self, input_dim: int, hidden_dim: int) -> None:
         super().__init__(input_dim, hidden_dim)
 
     def forward(
@@ -70,22 +74,27 @@ class GRUCore(nn.GRU):
 class RecurrentActorCritic(nn.Module):
     def __init__(
         self, 
-        observation_dim: int, 
-        action_dim: int, 
+        observation_space: Space, 
+        action_space: Space, 
         hidden_dim: int = 64, 
         gru_hidden_dim: int = 64
-    ):
+    ) -> None:
         super().__init__()
+        assert isinstance(observation_space, Box), "Only Box obs spaces are supported."
+        assert isinstance(action_space, Discrete), "Only Discrete action spaces are supported."
+
         self.base = nn.Sequential(
-            nn.Linear(observation_dim, hidden_dim),
+            nn.Linear(int(np.prod(observation_space.shape)), hidden_dim),
             nn.Tanh(),
         )
+
         self.gru = GRUCore(hidden_dim, gru_hidden_dim)
         self.actor_head = nn.Sequential(
             nn.Linear(gru_hidden_dim, hidden_dim),
             nn.Tanh(),
-            nn.Linear(hidden_dim, action_dim)
+            nn.Linear(hidden_dim, int(action_space.n))
         )
+
         self.critic_head = nn.Sequential(
             nn.Linear(gru_hidden_dim, hidden_dim),
             nn.Tanh(),
@@ -104,7 +113,7 @@ class RecurrentActorCritic(nn.Module):
         values = self.critic_head(x).squeeze(-1)
         return logits, values, hx
     
-def orthogonal_init(model: nn.Module, gain: float = 1.0):
+def orthogonal_init_(model: nn.Module, gain: float = 1.0) -> None:
     """Orthogonal weight and zero bias initialisation scheme."""
     for m in model.modules():
         if isinstance(m, nn.Linear):
@@ -119,45 +128,39 @@ class RecurrentPPO:
         *,
         cfg: RecurrentPPOConfig = RecurrentPPOConfig(),
         custom_network: nn.Module | None = None
-    ):
-        # Device selection
+    ) -> None:
         self.device = torch.device(
             "cuda" if cfg.cuda and torch.cuda.is_available() else "cpu"
         )
 
-        # RNG seeding
         if cfg.seed is not None:
             np.random.seed(cfg.seed)
             torch.manual_seed(cfg.seed)
 
-        # Create vectorised environments
         self.envs = gym.vector.SyncVectorEnv(
             [env_fn for _ in range(cfg.num_envs)], 
             copy=True,
             autoreset_mode="SameStep"
         )
 
-        # Set up network
         if custom_network is not None:
             self.network = custom_network.to(self.device)
         else:
             self.network = RecurrentActorCritic(
-                np.prod(self.envs.single_observation_space.shape),
-                self.envs.single_action_space.n,
+                self.envs.single_observation_space,
+                self.envs.single_action_space,
                 hidden_dim=cfg.network_hidden_dim,
                 gru_hidden_dim=cfg.gru_hidden_dim
             ).to(self.device)
 
         # Initialise network params with best practices for PPO
-        orthogonal_init(self.network, gain=np.sqrt(2.0))
+        orthogonal_init_(self.network, gain=sqrt(2.0))
         self.network.actor_head[-1].weight.data.mul_(0.01)
 
-        # Initialise Adam optimiser with larger epsilon
         self.optimizer = torch.optim.Adam(
-            self.network.parameters(), lr=cfg.lr, eps=1e-5
+            self.network.parameters(), lr=cfg.lr, eps=cfg.adam_eps
         )
 
-        # Linear learning rate scheduler
         self.lr_scheduler = torch.optim.lr_scheduler.LinearLR(
             self.optimizer,
             start_factor=1.0,
@@ -165,16 +168,13 @@ class RecurrentPPO:
             total_iters=cfg.total_steps // (cfg.num_envs * cfg.rollout_steps)
         )
 
-        # Track current step
-        self.current_step = 0
-
         # Utilities for logging, timing and checkpointing
-        self.ticker = Ticker(cfg.total_steps, cfg.num_envs, cfg.rollout_steps,
-                             verbose=cfg.verbose)
         self.logger = Logger()
         self.timer = Timer()
-        self.checkpointer = Checkpointer(folder="models", run_name="test")
+        self.checkpointer = Checkpointer(folder="models", run_name="default")
+        self.ticker = Ticker(cfg.total_steps, cfg.num_envs, cfg.rollout_steps, verbose=cfg.verbose)
 
+        self.current_step = 0
         self.cfg = cfg
 
     def rollout(self) -> list[list[np.ndarray]]:
@@ -187,8 +187,6 @@ class RecurrentPPO:
         prev_dones = self.prev_dones
         
         for step_idx in range(self.cfg.rollout_steps):
-
-            # Network forward pass, obtain actions, log probs and values
             observations_tensor = torch.as_tensor(observations[None, ...], dtype=torch.float32, device=self.device)
             prev_dones_tensor = torch.as_tensor(prev_dones[None, ...], dtype=torch.bool, device=self.device)
             with torch.inference_mode():
@@ -197,9 +195,7 @@ class RecurrentPPO:
             actions_tensor = dist.sample()
             log_probs = dist.log_prob(actions_tensor)
             
-            # Vectorised environment step
-            next_observations, rewards, terminations, truncations, infos = \
-                self.envs.step(actions_tensor.cpu().numpy())
+            next_observations, rewards, terminations, truncations, infos = self.envs.step(actions_tensor.cpu().numpy())
             
             # Handle next states in automatically reset environments
             final_observations = next_observations.copy()
@@ -216,7 +212,6 @@ class RecurrentPPO:
                     dones=None
                 )
 
-            # Store transition in experience buffer
             experience.append([
                 observations_tensor.squeeze(0),
                 actions_tensor,
@@ -230,12 +225,10 @@ class RecurrentPPO:
                 hx
             ])
             
-            # Log rewards and done info
             if self.ticker is not None:
                 dones = np.logical_or(terminations, truncations)
                 self.ticker.tick(rewards, dones)
 
-            # Update observations and previous dones for next step
             observations = next_observations
             hx = new_hx
             prev_dones = np.logical_or(terminations, truncations)
@@ -265,6 +258,7 @@ class RecurrentPPO:
         """
         advantages = torch.zeros_like(rewards, device=self.device)
         advantage = 0.0
+
         # Iterate backwards in time from last timestep to first
         for t in reversed(range(self.cfg.rollout_steps)):
             non_termination = 1.0 - terminations[t]
@@ -286,10 +280,12 @@ class RecurrentPPO:
                 * non_truncation 
                 * advantage
             )
+
         return advantages
 
     def learn(self, experience: list[list[np.ndarray]]) -> None:
         """Update policy and value networks using collected experience."""
+
         # Unpack and convert experience
         observations, actions, rewards, terminations, truncations, prev_dones, log_probs, values, next_values, hx = zip(*experience)
         observations = torch.stack(observations)
@@ -303,11 +299,8 @@ class RecurrentPPO:
         next_values = torch.stack(next_values)
         hx = hx[0].clone()
 
-        # Calculate GAE advantages and returns
         advantages = self.calculate_advantage(rewards, terminations, truncations, values, next_values)
         returns = values + advantages
-
-        # Optional advantage normalisation
         if self.cfg.advantage_norm:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
@@ -322,7 +315,7 @@ class RecurrentPPO:
         perms = np.stack([np.random.permutation(batch_size) for _ in range(self.cfg.num_epochs)])
         indices = perms.reshape(self.cfg.num_epochs, self.cfg.num_minibatches, minibatch_size)
 
-        # PPO update loop: multiple epochs and minibatches
+        # PPO update loop
         for b_indices in indices:
             for mb_indices in b_indices:
                 # Full forward pass with current network parameters
@@ -341,51 +334,42 @@ class RecurrentPPO:
                     torch.clamp(ratio, 1.0 - self.cfg.ppo_clip, 1.0 + self.cfg.ppo_clip)
                 loss_policy = torch.max(loss_surrogate_unclipped, loss_surrogate_clipped).mean()
 
-                # MSE value loss
                 loss_value = 0.5 * torch.nn.functional.mse_loss(new_values, returns[mb_indices])
 
-                # Entropy regularisation encourages exploration
                 entropy = dist.entropy().mean()
 
-                # Total loss
                 loss = (
                     loss_policy +
                     self.cfg.value_loss_weight * loss_value +
                     -self.cfg.entropy_beta * entropy
                 )
 
-                # Update network parameters with gradient clipping
                 self.optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(self.network.parameters(), self.cfg.grad_norm_clip)
                 self.optimizer.step()
 
-        # Step learning rate scheduler
         self.lr_scheduler.step()
 
     def train(self) -> None:
-        """Train Recurrent PPO agent."""
+        """Train recurrent PPO agent..."""
         if self.cfg.verbose: print("Training recurrent PPO agent")
         
         # Vectorised reset, get initial observations, set initial dones and hx
         self.current_observations, _ = self.envs.reset(seed=self.cfg.seed)
         self.prev_dones = np.zeros(self.cfg.num_envs, dtype=bool)
         self.current_hx = torch.zeros(1, self.cfg.num_envs, self.cfg.gru_hidden_dim, device=self.device)
+
         last_checkpoint_time = time.time()
-
-        # Compute number of rollouts to reach total steps
         total_rollouts = self.cfg.total_steps // (self.cfg.rollout_steps * self.cfg.num_envs)
+        
+        # Main training loop
         for rollout_idx in range(total_rollouts):
-            # Gather experience with current policy
             experience = self.rollout()
-
-            # Update policy and value networks from experience
             self.learn(experience)
 
-            # Number of environment steps
-            env_steps = (rollout_idx + 1) * self.cfg.rollout_steps * self.cfg.num_envs
-
             # Optionally save model state at intervals
+            env_steps = (rollout_idx + 1) * self.cfg.rollout_steps * self.cfg.num_envs
             if self.cfg.checkpoint:
                 if time.time() - last_checkpoint_time >= self.cfg.save_interval:
                     self.checkpointer.save(env_steps, self.network, self.optimizer)

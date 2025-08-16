@@ -5,11 +5,12 @@ Utility classes:
 - Timer: easily profile sections of code
 - Checkpointer: save and load model training state
 """
-from typing import Any, Dict, List
-from pathlib import Path
-from contextlib import contextmanager
 import time
+from pathlib import Path
 from collections import deque
+from contextlib import contextmanager
+from typing import Any
+
 import numpy as np
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
@@ -182,7 +183,7 @@ class Ticker:
             custom_logs=self.custom_logs.copy(),
         )
 
-    def _make_checkpoints(self, num_checkpoints: int) -> list[int]:
+    def _make_checkpoints(self, num_checkpoints: int) -> np.ndarray:
         steps_per_rollout = self.rollout_steps * self.num_envs
         total_iterations = self.total_steps // steps_per_rollout
         return (np.arange(1, num_checkpoints + 1) * 
@@ -213,6 +214,7 @@ class Ticker:
         for key in self.custom_logs:
             header += f"  |  {key}"
         print(header)
+
 
 # Custom dark template for plotly
 pio.templates["umbra"] = go.layout.Template(
@@ -265,6 +267,7 @@ pio.templates["umbra"] = go.layout.Template(
     }
 )
 
+
 class Logger:
     """
     Lightweight, TensorBoard-style scalar logger and Plotly visualizer.
@@ -280,7 +283,7 @@ class Logger:
     >>> logger.plot("episode_reward")
     """
     def __init__(self):
-        self.logs: Dict[str, Dict[str, List[Any]]] = {}
+        self.logs: dict[str, dict[str, list[Any]]] = {}
         self.theme = "umbra"
 
     def log(self, log_name: str, step: int, value: Any):
@@ -443,7 +446,7 @@ class Logger:
             raise ValueError(f"Unknown mode {mode!r}; use 'line' or 'scatter'.")
 
         # Axis scaling/styling
-        fig.update_yaxes(type=scale)
+        fig.update_layout(yaxis=dict(type=scale))
         fig.update_layout(
             template=self.theme,
             title=log_name,
@@ -454,6 +457,7 @@ class Logger:
             yaxis_title=None,
         )
         fig.show()
+
 
 class Timer:
     """
@@ -523,6 +527,7 @@ class Timer:
         plt.xticks(rotation=45, ha='right')
         plt.tight_layout()
         plt.show()
+
 
 class Checkpointer:
     """
