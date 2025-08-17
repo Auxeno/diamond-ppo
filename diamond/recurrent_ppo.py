@@ -6,8 +6,8 @@ from typing import Callable
 import gymnasium as gym
 import numpy as np
 import torch
+import torch.nn as nn
 from gymnasium.spaces import Space, Box, Discrete
-from torch import nn, Tensor
 
 from .utils import Ticker, Logger, Timer, Checkpointer
 
@@ -45,30 +45,48 @@ class GRUCore(nn.GRU):
 
     def forward(
         self, 
-        x: Tensor,               # (T, B, input_dim)
-        hx: Tensor | None,       # (1, B, H) | None
-        dones: Tensor | None     # (T, B) | None
-    ) -> tuple[Tensor, Tensor]:  # (T, B, H), (1, B, H)
+        x: torch.Tensor,
+        hx: torch.Tensor | None,
+        dones: torch.Tensor | None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        GRU forward with per-timestep hidden resets.
+
+        Parameters
+        ----------
+        x : (T, B, input_dim) torch.Tensor, dtype=float32
+            Input sequence.
+        hx : (1, B, H) torch.Tensor, dtype=float32 or None
+            Initial hidden state, set to zeros if None.
+        dones : (T, B) torch.Tensor, dtype=bool or None
+            Episode done mask, if True resets hidden state.
+
+        Returns
+        -------
+        gru_out : (T, B, H) torch.Tensor, dtype=float32
+            GRU outputs per timestep.
+        hx : (1, B, H) torch.Tensor, dtype=float32
+            Final hidden state.
+
+        Notes
+        -----
+        T: sequence length, B: batch size, H: GRU hidden size.
+        """
+
         # Initialise hidden state and dones if not provided
         seq_length, batch_size = x.shape[:2]
-        hx = torch.zeros(
-            1, batch_size, self.hidden_size, dtype=x.dtype, device=x.device
-        ) if hx is None else hx
-        dones = torch.zeros(
-            seq_length, batch_size, dtype=torch.bool, device=x.device
-        ) if dones is None else dones
+        hx = torch.zeros(1, batch_size, self.hidden_size, dtype=x.dtype, device=x.device) if hx is None else hx
+        dones = torch.zeros(seq_length, batch_size, dtype=torch.bool, device=x.device) if dones is None else dones
         
-        # Sequential GRU update loop
         outputs = []
         for t in range(seq_length):
             # Reset hidden state for start of new episodes
             hx[:, dones[t]] = 0.0
 
-            # Step GRU for all environments at this timestep
             out, hx = super().forward(x[t:t+1], hx)
             outputs.append(out)
 
-        # Concatenate outputs over time dimension
+        # Concatenate over time dimension
         gru_out = torch.concatenate(outputs, dim=0)
         return gru_out, hx
 
@@ -105,10 +123,35 @@ class RecurrentActorCritic(nn.Module):
     
     def forward(
         self,
-        x: Tensor,                       # (T, B, *observation_shape)
-        hx: Tensor | None,               # (1, B, H) | None
-        dones: Tensor | None             # (T, B) | None
-    ) -> tuple[Tensor, Tensor, Tensor]:  # (T, B, A), (T, B), (1, B, H)
+        x: torch.Tensor,
+        hx: torch.Tensor | None,
+        dones: torch.Tensor | None
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Actor-critic forward with GRU core.
+
+        Parameters
+        ----------
+        x : (T, B, *observation_shape) torch.Tensor, dtype=float32
+            Input observation sequence.
+        hx : (1, B, H) torch.Tensor, dtype=float32 or None
+            Initial GRU hidden state, set to zeros if None.
+        dones : (T, B) torch.Tensor, dtype=bool or None
+            Episode termination mask, True resets hidden state.
+
+        Returns
+        -------
+        logits : (T, B, A) torch.Tensor, dtype=float32
+            Action logits.
+        values : (T, B) torch.Tensor, dtype=float32
+            State-value estimates.
+        hx : (1, B, H) torch.Tensor, dtype=float32
+            Final GRU hidden state.
+
+        Notes
+        -----
+        T: sequence length, B: batch size, H: GRU hidden size, A: number of actions.
+        """
         x = self.base(x)
         x, hx = self.gru.forward(x, hx, dones)
         logits = self.actor_head(x)
@@ -239,12 +282,12 @@ class RecurrentPPO:
 
     def calculate_advantage(
         self, 
-        rewards: Tensor, 
-        terminations: Tensor, 
-        truncations: Tensor, 
-        values: Tensor, 
-        next_values: Tensor
-    ) -> Tensor:
+        rewards: torch.Tensor, 
+        terminations: torch.Tensor, 
+        truncations: torch.Tensor, 
+        values: torch.Tensor, 
+        next_values: torch.Tensor
+    ) -> torch.Tensor:
         """Calculate advantage with Generalised Advantage Estimation."""
         advantages = torch.zeros_like(rewards, device=self.device)
         advantage = 0.0
@@ -301,7 +344,7 @@ class RecurrentPPO:
             for x in (log_probs, actions, advantages, returns, values)
         ]
 
-        # Generate random indices, shape=(num_epochs, num_minibatches, minibatch_size)
+        # Generate random indices, shape: (num_epochs, num_minibatches, minibatch_size)
         batch_size = self.cfg.rollout_steps * self.cfg.num_envs
         minibatch_size = batch_size // self.cfg.num_minibatches
         perms = np.stack([np.random.permutation(batch_size) for _ in range(self.cfg.num_epochs)])

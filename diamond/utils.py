@@ -270,7 +270,7 @@ pio.templates["umbra"] = go.layout.Template(
 
 class Logger:
     """
-    Lightweight, TensorBoard-style scalar logger and Plotly visualizer.
+    Lightweight, torch.TensorBoard-style scalar logger and Plotly visualizer.
 
     Allows logging of named scalar values over steps (e.g., rewards, losses) and provides simple, interactive plots for inspection.
 

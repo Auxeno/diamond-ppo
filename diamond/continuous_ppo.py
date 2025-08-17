@@ -6,8 +6,8 @@ from typing import Callable
 import gymnasium as gym
 import numpy as np
 import torch
+import torch.nn as nn
 from gymnasium.spaces import Space, Box
-from torch import nn, Tensor
 
 from .utils import Ticker, Logger, Timer, Checkpointer
 
@@ -38,11 +38,11 @@ class ContinuousPPOConfig:
 
 
 class JointNormal(torch.distributions.Normal):
-    def log_prob(self, value: Tensor) -> Tensor:
+    def log_prob(self, value: torch.Tensor) -> torch.Tensor:
         """Return joint log-probability over all action dimensions."""
         return super().log_prob(value).sum(-1)
 
-    def entropy(self) -> Tensor:
+    def entropy(self) -> torch.Tensor:
         """Return joint entropy over all action dimensions."""
         return super().entropy().sum(-1)
     
@@ -78,19 +78,19 @@ class ActorCriticNetwork(nn.Module):
             nn.Linear(hidden_dim, 1)
         )
     
-    def actor(self, x: Tensor) -> tuple[Tensor, Tensor]:
+    def actor(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Returns action mean and log std."""
         x = self.base(x)
         mean = self.actor_mean_head(x)
         log_std = torch.broadcast_to(self.actor_log_std, mean.shape)
         return mean, log_std
     
-    def critic(self, x: Tensor) -> Tensor:
+    def critic(self, x: torch.Tensor) -> torch.Tensor:
         """Returns state value estimates given observations."""
         x = self.base(x)
         return self.critic_head(x).squeeze(-1)
     
-    def forward(self, x: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Returns action logits and state values from observations."""
         x = self.base(x)
         mean = self.actor_mean_head(x)
@@ -205,12 +205,12 @@ class ContinuousPPO:
 
     def calculate_advantage(
         self, 
-        rewards: Tensor, 
-        terminations: Tensor, 
-        truncations: Tensor, 
-        values: Tensor, 
-        next_values: Tensor
-    ) -> Tensor:
+        rewards: torch.Tensor, 
+        terminations: torch.Tensor, 
+        truncations: torch.Tensor, 
+        values: torch.Tensor, 
+        next_values: torch.Tensor
+    ) -> torch.Tensor:
         """Calculate advantage with Generalised Advantage Estimation."""
         advantages = torch.zeros_like(rewards, device=self.device)
         advantage = 0.0
