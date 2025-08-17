@@ -138,8 +138,9 @@ class ContinuousPPO:
                 hidden_dim=cfg.network_hidden_dim
             ).to(self.device)
 
-        # Initialise network params with best practices for PPO
-        orthogonal_init_(self.network, gain=sqrt(2.0))
+            # Initialise network params with best practices for PPO
+            orthogonal_init_(self.network, gain=sqrt(2.0))
+            
 
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=cfg.lr, eps=cfg.adam_eps)
 

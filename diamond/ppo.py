@@ -122,9 +122,9 @@ class PPO:
                 hidden_dim=cfg.network_hidden_dim
             ).to(self.device)
 
-        # Initialise network params with best practices for PPO
-        orthogonal_init_(self.network, gain=sqrt(2.0))
-        self.network.actor_head[-1].weight.data.mul_(0.01)  # type: ignore
+            # Initialise network params with best practices for PPO
+            orthogonal_init_(self.network, gain=sqrt(2.0))
+            self.network.actor_head[-1].weight.data.mul_(0.01)  # type: ignore
 
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=cfg.lr, eps=cfg.adam_eps)
 
