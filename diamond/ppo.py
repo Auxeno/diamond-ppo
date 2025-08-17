@@ -110,7 +110,7 @@ class PPO:
         self.envs = gym.vector.SyncVectorEnv(
             [env_fn for _ in range(cfg.num_envs)], 
             copy=True,
-            autoreset_mode="SameStep"
+            autoreset_mode="Disabled"
         )
 
         if custom_network is not None:
@@ -166,27 +166,24 @@ class PPO:
 
             next_observations, rewards, terminations, truncations, infos = self.envs.step(actions)
             
-            # Handle next states in automatically reset environments
-            final_observations = next_observations.copy()
-            if "final_obs" in infos.keys():
-                for obs_idx, obs in enumerate(infos["final_obs"]):
-                    if obs is not None: final_observations[obs_idx] = obs
-
             experience.append([
                 observations, 
-                final_observations, 
+                next_observations, 
                 actions, 
                 rewards, 
                 terminations, 
                 truncations
             ])
             
-            if self.ticker is not None:
-                dones = np.logical_or(terminations, truncations)
-                self.ticker.tick(rewards, dones)
+            dones = np.logical_or(terminations, truncations)
+            new_observations, infos = (
+                self.envs.reset(options={"reset_mask": dones})
+                if np.any(dones) else (next_observations, infos)
+            )
+            observations = new_observations
 
-            observations = next_observations
-            self.current_step += self.cfg.num_envs
+            if self.ticker is not None:
+                self.ticker.tick(rewards, dones)
 
         # Store last observations for start of next rollout
         self.current_observations = observations

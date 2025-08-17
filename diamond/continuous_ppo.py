@@ -126,7 +126,7 @@ class ContinuousPPO:
         self.envs = gym.vector.SyncVectorEnv(
             [env_fn for _ in range(cfg.num_envs)], 
             copy=True,
-            autoreset_mode="SameStep"
+            autoreset_mode="Disabled"
         )
 
         if custom_network is not None:
@@ -156,7 +156,6 @@ class ContinuousPPO:
         self.checkpointer = Checkpointer(folder="models", run_name="default")
         self.ticker = Ticker(cfg.total_steps, cfg.num_envs, cfg.rollout_steps, verbose=cfg.verbose)
         
-        self.current_step = 0
         self.cfg = cfg
         
     def select_action(self, observations: np.ndarray) -> np.ndarray:
@@ -180,28 +179,25 @@ class ContinuousPPO:
             actions = self.select_action(observations)
 
             next_observations, rewards, terminations, truncations, infos = self.envs.step(actions)
-            
-            # Handle next states in automatically reset environments
-            final_observations = next_observations.copy()
-            if "final_obs" in infos.keys():
-                for obs_idx, obs in enumerate(infos["final_obs"]):
-                    if obs is not None: final_observations[obs_idx] = obs
 
             experience.append([
                 observations, 
-                final_observations, 
+                next_observations, 
                 actions, 
                 rewards, 
                 terminations, 
                 truncations
             ])
-            
-            if self.ticker is not None:
-                dones = np.logical_or(terminations, truncations)
-                self.ticker.tick(rewards, dones)
 
-            observations = next_observations
-            self.current_step += self.cfg.num_envs
+            dones = np.logical_or(terminations, truncations)
+            new_observations, infos = (
+                self.envs.reset(options={"reset_mask": dones})
+                if np.any(dones) else (next_observations, infos)
+            )
+            observations = new_observations
+
+            if self.ticker is not None:
+                self.ticker.tick(rewards, dones)
 
         # Store last observations for start of next rollout
         self.current_observations = observations
