@@ -103,7 +103,7 @@ def network_parameter_init_(network: nn.Module, gain: float = 1.0) -> None:
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
         if hasattr(network, "actor_out_layer"):
-            network.actor_out_layer.weight.mul_(0.01)  # type: ignore
+            nn.init.orthogonal_(network.actor_out_layer.weight, gain=0.01)  # type: ignore
 
 
 class PPO:

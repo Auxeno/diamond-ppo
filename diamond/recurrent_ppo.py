@@ -91,7 +91,7 @@ class GRUCore(nn.GRU):
         return gru_out, hx
 
 
-class RecurrentActorCritic(nn.Module):
+class RecurrentActorCriticNetwork(nn.Module):
     def __init__(
         self, 
         observation_space: Space, 
@@ -156,7 +156,7 @@ def network_parameter_init_(network: nn.Module, gain: float = 1.0) -> None:
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
         if hasattr(network, "actor_out_layer"):
-            network.actor_out_layer.weight.mul_(0.01)  # type: ignore
+            nn.init.orthogonal_(network.actor_out_layer.weight, gain=0.01)  # type: ignore
 
 
 class RecurrentPPO:
@@ -182,7 +182,7 @@ class RecurrentPPO:
         if custom_network is not None:
             self.network = custom_network.to(self.device)
         else:
-            self.network = RecurrentActorCritic(
+            self.network = RecurrentActorCriticNetwork(
                 self.envs.single_observation_space,
                 self.envs.single_action_space,
                 hidden_dim=cfg.network_hidden_dim,
