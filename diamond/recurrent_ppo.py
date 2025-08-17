@@ -114,59 +114,49 @@ class RecurrentActorCritic(nn.Module):
             nn.Tanh(),
             nn.Linear(hidden_dim, int(action_space.n))
         )
+        self.actor_out_layer = self.actor_head[-1]
 
         self.critic_head = nn.Sequential(
             nn.Linear(gru_hidden_dim, hidden_dim),
             nn.Tanh(),
             nn.Linear(hidden_dim, 1)
         )
+
+    def get_values(self,
+        observations: torch.Tensor,
+        hx: torch.Tensor | None,
+        dones: torch.Tensor | None
+    ) -> torch.Tensor:
+        """Returns state values given a batch of observations."""
+        x = self.base(observations)               # (T, B, H)
+        x, hx = self.gru.forward(x, hx, dones)    # (T, B, H), (1, B, H)
+        values = self.critic_head(x).squeeze(-1)  # (T, B)
+        return values
     
-    def forward(
+    def get_logits_values_and_hx(
         self,
-        x: torch.Tensor,
+        observations: torch.Tensor,
         hx: torch.Tensor | None,
         dones: torch.Tensor | None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Actor-critic forward with GRU core.
-
-        Parameters
-        ----------
-        x : (T, B, *observation_shape) torch.Tensor, dtype=float32
-            Input observation sequence.
-        hx : (1, B, H) torch.Tensor, dtype=float32 or None
-            Initial GRU hidden state, set to zeros if None.
-        dones : (T, B) torch.Tensor, dtype=bool or None
-            Episode termination mask, True resets hidden state.
-
-        Returns
-        -------
-        logits : (T, B, A) torch.Tensor, dtype=float32
-            Action logits.
-        values : (T, B) torch.Tensor, dtype=float32
-            State-value estimates.
-        hx : (1, B, H) torch.Tensor, dtype=float32
-            Final GRU hidden state.
-
-        Notes
-        -----
-        T: sequence length, B: batch size, H: GRU hidden size, A: number of actions.
-        """
-        x = self.base(x)
-        x, hx = self.gru.forward(x, hx, dones)
-        logits = self.actor_head(x)
-        values = self.critic_head(x).squeeze(-1)
+        """Returns logits, values and updated hx given a batch of observations, current hx and prev dones."""
+        x = self.base(observations)               # (T, B, H)
+        x, hx = self.gru.forward(x, hx, dones)    # (T, B, H), (1, B, H)
+        logits = self.actor_head(x)               # (T, B, A)
+        values = self.critic_head(x).squeeze(-1)  # (T, B)
         return logits, values, hx
     
 
-def orthogonal_init_(model: nn.Module, gain: float = 1.0) -> None:
-    """Orthogonal weight and zero bias initialisation scheme."""
+def network_parameter_init_(network: nn.Module, gain: float = 1.0) -> None:
+    """Orthogonal weight and zero bias initialisation scheme with small variance output layer."""
     with torch.no_grad():
-        for m in model.modules():
+        for m in network.modules():
             if isinstance(m, nn.Linear):
                 nn.init.orthogonal_(m.weight, gain=gain)
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
+        if hasattr(network, "actor_out_layer"):
+            network.actor_out_layer.weight.mul_(0.01)  # type: ignore
 
 
 class RecurrentPPO:
@@ -199,9 +189,7 @@ class RecurrentPPO:
                 gru_hidden_dim=cfg.gru_hidden_dim
             ).to(self.device)
 
-            # Initialise network params with best practices for PPO
-            orthogonal_init_(self.network, gain=sqrt(2.0))
-            self.network.actor_head[-1].weight.data.mul_(0.01)  # type: ignore
+            network_parameter_init_(self.network, gain=sqrt(2.0))
 
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=cfg.lr, eps=cfg.adam_eps)
 
@@ -212,7 +200,7 @@ class RecurrentPPO:
             total_iters=cfg.total_steps // (cfg.num_envs * cfg.rollout_steps)
         )
 
-        # Utilities for logging, timing and checkpointing
+        # Optional utilities for logging, timing and checkpointing
         self.logger = Logger()
         self.timer = Timer()
         self.checkpointer = Checkpointer(folder="models", run_name="default")
@@ -233,25 +221,25 @@ class RecurrentPPO:
             observations_tensor = torch.as_tensor(observations[None, ...], dtype=torch.float32, device=self.device)
             prev_dones_tensor = torch.as_tensor(prev_dones[None, ...], dtype=torch.bool, device=self.device)
             with torch.inference_mode():
-                logits, values, new_hx = self.network(observations_tensor, hx, prev_dones_tensor)
+                logits, values, new_hx = self.network.get_logits_values_and_hx(observations_tensor, hx, prev_dones_tensor)  # type: ignore
             dist = torch.distributions.Categorical(logits=logits.squeeze(0))
-            actions_tensor = dist.sample()
-            log_probs = dist.log_prob(actions_tensor)
+            actions = dist.sample()
+            log_probs = dist.log_prob(actions)
             
-            next_observations, rewards, terminations, truncations, infos = self.envs.step(actions_tensor.cpu().numpy())
+            next_observations, rewards, terminations, truncations, infos = self.envs.step(actions.cpu().numpy())
 
             # Get next values
             final_observations_tensor = torch.as_tensor(next_observations[None, ...], dtype=torch.float32, device=self.device)
             with torch.inference_mode():
-                _, next_values, _ = self.network(
+                next_values = self.network.get_values(
                     final_observations_tensor, 
                     new_hx,
                     dones=None
-                )
+                )  # type: ignore
 
             experience.append([
                 observations_tensor.squeeze(0),
-                actions_tensor,
+                actions,
                 rewards,
                 terminations,
                 truncations,
@@ -318,8 +306,6 @@ class RecurrentPPO:
 
     def learn(self, experience: list[list[np.ndarray]]) -> None:
         """Update policy and value networks using collected experience."""
-
-        # Unpack and convert experience
         observations, actions, rewards, terminations, truncations, prev_dones, log_probs, values, next_values, hx = zip(*experience)
         observations = torch.stack(observations)
         actions = torch.stack(actions)
@@ -335,7 +321,7 @@ class RecurrentPPO:
         advantages = self.calculate_advantage(rewards, terminations, truncations, values, next_values)
         returns = values + advantages
         if self.cfg.advantage_norm:
-            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
         
         # Merge step and environment dims of each tensor
         flatten = lambda x: x.reshape(-1, *x.shape[2:])
@@ -354,7 +340,7 @@ class RecurrentPPO:
         for b_indices in indices:
             for mb_indices in b_indices:
                 # Full forward pass with current network parameters
-                new_logits, new_values, _ = self.network(observations, hx, prev_dones)
+                new_logits, new_values, _ = self.network.get_logits_values_and_hx(observations, hx, prev_dones)  # type: ignore
                 
                 # Flatten and slice minibatch indices
                 new_logits, new_values = [flatten(x) for x in [new_logits, new_values]]

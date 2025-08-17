@@ -47,12 +47,12 @@ class JointNormal(torch.distributions.Normal):
         return super().entropy().sum(-1)
     
 
-class ActorCriticNetwork(nn.Module):
+class ContinuousActorCriticNetwork(nn.Module):
     def __init__(
         self, 
         observation_space: Space, 
         action_space: Space, 
-        hidden_dim: int = 64
+        hidden_dim: int
     ) -> None:
         super().__init__()
         assert isinstance(observation_space, Box), "Only Box obs spaces are supported."
@@ -77,32 +77,42 @@ class ActorCriticNetwork(nn.Module):
             nn.Tanh(),
             nn.Linear(hidden_dim, 1)
         )
+
+    def get_actions(self, observations: np.ndarray, device: torch.device) -> np.ndarray:
+        """Returns NumPy actions given a batch of NumPy observations."""
+        observations_tensor = torch.as_tensor(observations, dtype=torch.float32, device=device)
+        with torch.inference_mode():
+            x = self.base(observations_tensor)
+            mean = self.actor_mean_head(x)
+        log_std = torch.broadcast_to(self.actor_log_std, mean.shape)
+
+        # Sample actions from muliple Gaussians with same variance
+        actions = JointNormal(loc=mean, scale=log_std.exp()).sample().cpu().numpy()
+        return actions
     
-    def actor(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Returns action mean and log std."""
-        x = self.base(x)
+    def get_values(self, observations: torch.Tensor) -> torch.Tensor:
+        """Returns state values given a batch of observations."""
+        with torch.inference_mode():
+            x = self.base(observations)
+            values = self.critic_head(x)
+        return values.squeeze(-1)
+    
+    def get_means_log_stds_and_values(
+        self, 
+        observations: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Returns means, log stds and values given a batch of observations."""
+        x = self.base(observations)
         mean = self.actor_mean_head(x)
         log_std = torch.broadcast_to(self.actor_log_std, mean.shape)
-        return mean, log_std
-    
-    def critic(self, x: torch.Tensor) -> torch.Tensor:
-        """Returns state value estimates given observations."""
-        x = self.base(x)
-        return self.critic_head(x).squeeze(-1)
-    
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Returns action logits and state values from observations."""
-        x = self.base(x)
-        mean = self.actor_mean_head(x)
-        log_std = torch.broadcast_to(self.actor_log_std, mean.shape)
-        value = self.critic_head(x).squeeze(-1)
-        return mean, log_std, value
+        values = self.critic_head(x).squeeze(-1)
+        return mean, log_std, values
 
 
-def orthogonal_init_(model: nn.Module, gain: float = 1.0) -> None:
+def network_parameter_init_(network: nn.Module, gain: float = 1.0) -> None:
     """Orthogonal weight and zero bias initialisation scheme."""
     with torch.no_grad():
-        for m in model.modules():
+        for m in network.modules():
             if isinstance(m, nn.Linear):
                 nn.init.orthogonal_(m.weight, gain=gain)
                 if m.bias is not None:
@@ -132,14 +142,13 @@ class ContinuousPPO:
         if custom_network is not None:
             self.network = custom_network.to(self.device)
         else:
-            self.network = ActorCriticNetwork(
+            self.network = ContinuousActorCriticNetwork(
                 self.envs.single_observation_space,
                 self.envs.single_action_space,
                 hidden_dim=cfg.network_hidden_dim
             ).to(self.device)
 
-            # Initialise network params with best practices for PPO
-            orthogonal_init_(self.network, gain=sqrt(2.0))
+            network_parameter_init_(self.network, gain=sqrt(2.0))
 
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=cfg.lr, eps=cfg.adam_eps)
 
@@ -150,23 +159,13 @@ class ContinuousPPO:
             total_iters=cfg.total_steps // (cfg.num_envs * cfg.rollout_steps)
         )
 
-        # Utilities for logging, timing and checkpointing
+        # Optional utilities for logging, timing and checkpointing
         self.logger = Logger()
         self.timer = Timer()
         self.checkpointer = Checkpointer(folder="models", run_name="default")
         self.ticker = Ticker(cfg.total_steps, cfg.num_envs, cfg.rollout_steps, verbose=cfg.verbose)
         
         self.cfg = cfg
-        
-    def select_action(self, observations: np.ndarray) -> np.ndarray:
-        """Sample continuous actions from current policy."""
-        observations_tensor = torch.as_tensor(observations, dtype=torch.float32, device=self.device)
-        with torch.inference_mode():
-            mean, log_std = self.network.actor(observations_tensor)  # type: ignore
-
-        # Boltzmann action selection
-        actions = JointNormal(loc=mean, scale=log_std.exp()).sample()
-        return actions.cpu().numpy()
 
     def rollout(self) -> list[list[np.ndarray]]:
         """Collect a single rollout of experience across all vectorised envs."""
@@ -176,7 +175,7 @@ class ContinuousPPO:
         observations = self.current_observations
 
         for step_idx in range(self.cfg.rollout_steps):
-            actions = self.select_action(observations)
+            actions = self.network.get_actions(observations, device=self.device)  # type: ignore
 
             next_observations, rewards, terminations, truncations, infos = self.envs.step(actions)
 
@@ -251,15 +250,14 @@ class ContinuousPPO:
 
         # Log probs and values before any updates
         with torch.inference_mode():
-            means, log_stds, values = self.network(observations)
+            means, log_stds, values = self.network.get_means_log_stds_and_values(observations)  # type: ignore
             log_probs = JointNormal(loc=means, scale=log_stds.exp()).log_prob(actions)
-            next_values = self.network.critic(next_observations)  # type: ignore
+            next_values = self.network.get_values(next_observations)  # type: ignore
 
-        # Calculate GAE advantages and returns
         advantages = self.calculate_advantage(rewards, terminations, truncations, values, next_values)
         returns = values + advantages
         if self.cfg.advantage_norm:
-            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
 
         # Merge step and environment dims of each tensor
         observations, log_probs, actions, advantages, returns, values = [
@@ -277,7 +275,7 @@ class ContinuousPPO:
         for b_indices in indices:
             for mb_indices in b_indices:
                 # Forward pass with current network parameters
-                new_means, new_log_stds, new_values = self.network(observations[mb_indices])
+                new_means, new_log_stds, new_values = self.network.get_means_log_stds_and_values(observations[mb_indices])  # type: ignore
 
                 # Compute PPO clipped policy loss
                 dist = JointNormal(loc=new_means, scale=new_log_stds.exp())

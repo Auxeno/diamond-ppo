@@ -42,7 +42,7 @@ class ActorCriticNetwork(nn.Module):
         self, 
         observation_space: Space, 
         action_space: Space, 
-        hidden_dim: int = 64
+        hidden_dim: int
     ) -> None:
         super().__init__()
         assert isinstance(observation_space, Box), "Only Box obs spaces are supported."
@@ -60,37 +60,50 @@ class ActorCriticNetwork(nn.Module):
             nn.Tanh(),
             nn.Linear(hidden_dim, int(action_space.n))
         )
+        self.actor_out_layer = self.actor_head[-1]
 
         self.critic_head = nn.Sequential(
             nn.Linear(hidden_dim,  hidden_dim),
             nn.Tanh(),
             nn.Linear(hidden_dim, 1)
         )
+
+    def get_actions(self, observations: np.ndarray, device: torch.device) -> np.ndarray:
+        """Returns NumPy actions given a batch of NumPy observations."""
+        observations_tensor = torch.as_tensor(observations, dtype=torch.float32, device=device)
+        with torch.inference_mode():
+            x = self.base(observations_tensor)
+            logits = self.actor_head(x)
+
+        # Boltzmann action selection
+        actions = torch.distributions.Categorical(logits=logits).sample().cpu().numpy()
+        return actions
     
-    def actor(self, x: torch.Tensor) -> torch.Tensor:
-        """Returns action logits given observations."""
-        x = self.base(x)
-        return self.actor_head(x)
+    def get_values(self, observations: torch.Tensor) -> torch.Tensor:
+        """Returns state values given a batch of observations."""
+        with torch.inference_mode():
+            x = self.base(observations)
+            values = self.critic_head(x)
+        return values.squeeze(-1)
     
-    def critic(self, x: torch.Tensor) -> torch.Tensor:
-        """Returns state value estimates given observations."""
+    def get_logits_and_values(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Returns action logits and state values from a batch of observations."""
         x = self.base(x)
-        return self.critic_head(x).squeeze(-1)
-    
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Returns action logits and state values from observations."""
-        x = self.base(x)
-        return self.actor_head(x), self.critic_head(x).squeeze(-1)
+        logits = self.actor_head(x)
+        values = self.critic_head(x).squeeze(-1)
+        return logits, values
 
 
-def orthogonal_init_(model: nn.Module, gain: float = 1.0) -> None:
-    """Orthogonal weight and zero bias initialisation scheme."""
+def network_parameter_init_(network: nn.Module, gain: float = 1.0) -> None:
+    """Orthogonal weight and zero bias initialisation scheme with small variance output layer."""
     with torch.no_grad():
-        for m in model.modules():
+        for m in network.modules():
             if isinstance(m, nn.Linear):
                 nn.init.orthogonal_(m.weight, gain=gain)
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
+        if hasattr(network, "actor_out_layer"):
+            network.actor_out_layer.weight.mul_(0.01)  # type: ignore
 
 
 class PPO:
@@ -122,9 +135,7 @@ class PPO:
                 hidden_dim=cfg.network_hidden_dim
             ).to(self.device)
 
-            # Initialise network params with best practices for PPO
-            orthogonal_init_(self.network, gain=sqrt(2.0))
-            self.network.actor_head[-1].weight.data.mul_(0.01)  # type: ignore
+            network_parameter_init_(self.network, gain=sqrt(2.0))
 
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=cfg.lr, eps=cfg.adam_eps)
 
@@ -135,7 +146,7 @@ class PPO:
             total_iters=cfg.total_steps // (cfg.num_envs * cfg.rollout_steps)
         )
 
-        # Utilities for logging, timing and checkpointing
+        # Optional utilities for logging, timing and checkpointing
         self.logger = Logger()
         self.timer = Timer()
         self.checkpointer = Checkpointer(folder="models", run_name="default")
@@ -143,16 +154,6 @@ class PPO:
         
         self.current_step = 0
         self.cfg = cfg
-        
-    def select_action(self, observations: np.ndarray) -> np.ndarray:
-        """Sample discrete actions from current policy."""
-        observations_tensor = torch.as_tensor(observations, dtype=torch.float32, device=self.device)
-        with torch.inference_mode():
-            logits = self.network.actor(observations_tensor)  # type: ignore
-
-        # Boltzmann action selection
-        actions = torch.distributions.Categorical(logits=logits).sample()
-        return actions.cpu().numpy()
 
     def rollout(self) -> list[list[np.ndarray]]:
         """Collect a single rollout of experience across all vectorised envs."""
@@ -162,7 +163,7 @@ class PPO:
         observations = self.current_observations
 
         for step_idx in range(self.cfg.rollout_steps):
-            actions = self.select_action(observations)
+            actions = self.network.get_actions(observations, device=self.device)  # type: ignore
 
             next_observations, rewards, terminations, truncations, infos = self.envs.step(actions)
             
@@ -237,14 +238,14 @@ class PPO:
 
         # Log probs and values before any updates
         with torch.inference_mode():
-            logits, values = self.network(observations)
+            logits, values = self.network.get_logits_and_values(observations)  # type: ignore
             log_probs = torch.distributions.Categorical(logits=logits).log_prob(actions)
-            next_values = self.network.critic(next_observations)  # type: ignore
+            next_values = self.network.get_values(next_observations)  # type: ignore
 
         advantages = self.calculate_advantage(rewards, terminations, truncations, values, next_values)
         returns = values + advantages
         if self.cfg.advantage_norm:
-            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
 
         # Merge step and environment dims of each tensor
         observations, log_probs, actions, advantages, returns, values = [
@@ -262,7 +263,7 @@ class PPO:
         for b_indices in indices:
             for mb_indices in b_indices:
                 # Forward pass with current network parameters
-                new_logits, new_values = self.network(observations[mb_indices])
+                new_logits, new_values = self.network.get_logits_and_values(observations[mb_indices])  # type: ignore
 
                 # Compute PPO clipped policy loss
                 dist = torch.distributions.Categorical(logits=new_logits)
