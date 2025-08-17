@@ -143,7 +143,7 @@ class RecurrentPPO:
         self.envs = gym.vector.SyncVectorEnv(
             [env_fn for _ in range(cfg.num_envs)], 
             copy=True,
-            autoreset_mode="SameStep"
+            autoreset_mode="Disabled"
         )
 
         if custom_network is not None:
@@ -175,7 +175,6 @@ class RecurrentPPO:
         self.checkpointer = Checkpointer(folder="models", run_name="default")
         self.ticker = Ticker(cfg.total_steps, cfg.num_envs, cfg.rollout_steps, verbose=cfg.verbose)
 
-        self.current_step = 0
         self.cfg = cfg
 
     def rollout(self) -> list[list[np.ndarray]]:
@@ -197,15 +196,9 @@ class RecurrentPPO:
             log_probs = dist.log_prob(actions_tensor)
             
             next_observations, rewards, terminations, truncations, infos = self.envs.step(actions_tensor.cpu().numpy())
-            
-            # Handle next states in automatically reset environments
-            final_observations = next_observations.copy()
-            if "final_obs" in infos.keys():
-                for obs_idx, obs in enumerate(infos["final_obs"]):
-                    if obs is not None: final_observations[obs_idx] = obs
 
             # Get next values
-            final_observations_tensor = torch.as_tensor(final_observations[None, ...], dtype=torch.float32, device=self.device)
+            final_observations_tensor = torch.as_tensor(next_observations[None, ...], dtype=torch.float32, device=self.device)
             with torch.inference_mode():
                 _, next_values, _ = self.network(
                     final_observations_tensor, 
@@ -225,15 +218,18 @@ class RecurrentPPO:
                 next_values.squeeze(0),
                 hx
             ])
-            
-            if self.ticker is not None:
-                dones = np.logical_or(terminations, truncations)
-                self.ticker.tick(rewards, dones)
 
-            observations = next_observations
+            dones = np.logical_or(terminations, truncations)
+            new_observations, infos = (
+                self.envs.reset(options={"reset_mask": dones})
+                if np.any(dones) else (next_observations, infos)
+            )
+            observations = new_observations
             hx = new_hx
             prev_dones = np.logical_or(terminations, truncations)
-            self.current_step += self.cfg.num_envs
+
+            if self.ticker is not None:
+                self.ticker.tick(rewards, dones)
 
         # Store last observations for start of next rollout
         self.current_observations = observations
