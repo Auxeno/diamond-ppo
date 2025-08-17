@@ -140,7 +140,6 @@ class ContinuousPPO:
 
             # Initialise network params with best practices for PPO
             orthogonal_init_(self.network, gain=sqrt(2.0))
-            
 
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=cfg.lr, eps=cfg.adam_eps)
 
@@ -216,14 +215,7 @@ class ContinuousPPO:
         values: Tensor, 
         next_values: Tensor
     ) -> Tensor:
-        """
-        Calculate advantage with Generalised Advantage Estimation.
-        
-        The advantage at each step is the current TD error (δ),
-        plus the discounted (γ), decayed (λ) sum of future TD errors.
-        Accumulation stops at terminations or truncations, as further TD errors
-        are from future episodes.
-        """
+        """Calculate advantage with Generalised Advantage Estimation."""
         advantages = torch.zeros_like(rewards, device=self.device)
         advantage = 0.0
 
