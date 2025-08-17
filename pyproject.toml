@@ -65,11 +65,8 @@ Repository = "https://github.com/auxeno/diamond-ppo"
 Documentation = "https://github.com/auxeno/diamond-ppo#readme"
 "Bug Tracker" = "https://github.com/auxeno/diamond-ppo/issues"
 
-[tool.setuptools.packages.find]
-include = ["diamond", "diamond.*"]
-
-[tool.setuptools.package-data]
-diamond = ["py.typed"]
+[tool.setuptools]
+packages = ["diamond"]
 
 [tool.black]
 line-length = 100
