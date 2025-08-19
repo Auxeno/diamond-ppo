@@ -120,7 +120,15 @@ Optional utilities for training and debugging:
 Live training progress display with episode statistics:
 ```python
 from diamond.utils import Ticker
-ticker = Ticker(total_steps=1_000_000)
+ticker = Ticker(total_steps=1_000_000, num_envs=8, rollout_steps=32)
+ticker.tick(rewards, dones)
+
+>>> Progress  |       Step  |   Episode  |  Mean Rew  |  Mean Len  |     FPS  |      Time
+>>>     4.1%  |      2,040  |        84  |     23.78  |      23.8  |    2138  |  00:00:00
+>>>     9.2%  |      4,600  |       140  |     36.62  |      36.6  |    1559  |  00:00:02
+>>>    14.3%  |      7,160  |       180  |     51.02  |      51.0  |    1808  |  00:00:04
+...
+
 ```
 
 ### Logger
