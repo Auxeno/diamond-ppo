@@ -123,9 +123,7 @@ class ContinuousPPO:
     def __init__(
         self,
         env_fn: Callable[[], gym.Env],
-        *,
-        cfg: ContinuousPPOConfig = ContinuousPPOConfig(),
-        custom_network: nn.Module | None = None
+        cfg: ContinuousPPOConfig = ContinuousPPOConfig()
     ) -> None:
         self.device = torch.device("cuda" if cfg.cuda and torch.cuda.is_available() else "cpu")
 
@@ -139,16 +137,13 @@ class ContinuousPPO:
             autoreset_mode="Disabled"
         )
 
-        if custom_network is not None:
-            self.network = custom_network.to(self.device)
-        else:
-            self.network = ContinuousActorCriticNetwork(
-                self.envs.single_observation_space,
-                self.envs.single_action_space,
-                hidden_dim=cfg.network_hidden_dim
-            ).to(self.device)
+        self.network = ContinuousActorCriticNetwork(
+            self.envs.single_observation_space,
+            self.envs.single_action_space,
+            hidden_dim=cfg.network_hidden_dim
+        ).to(self.device)
 
-            network_parameter_init_(self.network, gain=sqrt(2.0))
+        network_parameter_init_(self.network, gain=sqrt(2.0))
 
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=cfg.lr, eps=cfg.adam_eps)
 
@@ -175,7 +170,7 @@ class ContinuousPPO:
         observations = self.current_observations
 
         for step_idx in range(self.cfg.rollout_steps):
-            actions = self.network.get_actions(observations, device=self.device)  # type: ignore
+            actions = self.network.get_actions(observations, device=self.device)
 
             next_observations, rewards, terminations, truncations, infos = self.envs.step(actions)
 
@@ -250,9 +245,9 @@ class ContinuousPPO:
 
         # Log probs and values before any updates
         with torch.inference_mode():
-            means, log_stds, values = self.network.get_means_log_stds_and_values(observations)  # type: ignore
+            means, log_stds, values = self.network.get_means_log_stds_and_values(observations)
             log_probs = JointNormal(loc=means, scale=log_stds.exp()).log_prob(actions)
-            next_values = self.network.get_values(next_observations)  # type: ignore
+            next_values = self.network.get_values(next_observations)
 
         advantages = self.calculate_advantage(rewards, terminations, truncations, values, next_values)
         returns = values + advantages
@@ -275,7 +270,7 @@ class ContinuousPPO:
         for b_indices in indices:
             for mb_indices in b_indices:
                 # Forward pass with current network parameters
-                new_means, new_log_stds, new_values = self.network.get_means_log_stds_and_values(observations[mb_indices])  # type: ignore
+                new_means, new_log_stds, new_values = self.network.get_means_log_stds_and_values(observations[mb_indices])
 
                 # Compute PPO clipped policy loss
                 dist = JointNormal(loc=new_means, scale=new_log_stds.exp())

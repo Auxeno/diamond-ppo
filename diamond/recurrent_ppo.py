@@ -75,8 +75,8 @@ class GRUCore(nn.GRU):
 
         # Initialise hidden state and dones if not provided
         seq_length, batch_size = x.shape[:2]
-        hx = torch.zeros(1, batch_size, self.hidden_size, dtype=x.dtype, device=x.device) if hx is None else hx
-        dones = torch.zeros(seq_length, batch_size, dtype=torch.bool, device=x.device) if dones is None else dones
+        hx = hx or torch.zeros(1, batch_size, self.hidden_size, dtype=x.dtype, device=x.device)
+        dones = dones or torch.zeros(seq_length, batch_size, dtype=torch.bool, device=x.device)
         
         outputs = []
         for t in range(seq_length):
@@ -139,7 +139,7 @@ class RecurrentActorCriticNetwork(nn.Module):
         hx: torch.Tensor | None,
         dones: torch.Tensor | None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Returns logits, values and updated hx given a batch of observations, current hx and prev dones."""
+        """Returns logits, values and updated hx given a batch of observations, hx and prev dones."""
         x = self.base(observations)               # (T, B, H)
         x, hx = self.gru.forward(x, hx, dones)    # (T, B, H), (1, B, H)
         logits = self.actor_head(x)               # (T, B, A)
@@ -163,9 +163,7 @@ class RecurrentPPO:
     def __init__(
         self,
         env_fn: Callable[[], gym.Env],
-        *,
-        cfg: RecurrentPPOConfig = RecurrentPPOConfig(),
-        custom_network: nn.Module | None = None
+        cfg: RecurrentPPOConfig = RecurrentPPOConfig()
     ) -> None:
         self.device = torch.device("cuda" if cfg.cuda and torch.cuda.is_available() else "cpu")
 
@@ -179,17 +177,14 @@ class RecurrentPPO:
             autoreset_mode="Disabled"
         )
 
-        if custom_network is not None:
-            self.network = custom_network.to(self.device)
-        else:
-            self.network = RecurrentActorCriticNetwork(
-                self.envs.single_observation_space,
-                self.envs.single_action_space,
-                hidden_dim=cfg.network_hidden_dim,
-                gru_hidden_dim=cfg.gru_hidden_dim
-            ).to(self.device)
+        self.network = RecurrentActorCriticNetwork(
+            self.envs.single_observation_space,
+            self.envs.single_action_space,
+            hidden_dim=cfg.network_hidden_dim,
+            gru_hidden_dim=cfg.gru_hidden_dim
+        ).to(self.device)
 
-            network_parameter_init_(self.network, gain=sqrt(2.0))
+        network_parameter_init_(self.network, gain=sqrt(2.0))
 
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=cfg.lr, eps=cfg.adam_eps)
 
@@ -221,7 +216,7 @@ class RecurrentPPO:
             observations_tensor = torch.as_tensor(observations[None, ...], dtype=torch.float32, device=self.device)
             prev_dones_tensor = torch.as_tensor(prev_dones[None, ...], dtype=torch.bool, device=self.device)
             with torch.inference_mode():
-                logits, values, new_hx = self.network.get_logits_values_and_hx(observations_tensor, hx, prev_dones_tensor)  # type: ignore
+                logits, values, new_hx = self.network.get_logits_values_and_hx(observations_tensor, hx, prev_dones_tensor)
             dist = torch.distributions.Categorical(logits=logits.squeeze(0))
             actions = dist.sample()
             log_probs = dist.log_prob(actions)
@@ -235,7 +230,7 @@ class RecurrentPPO:
                     final_observations_tensor, 
                     new_hx,
                     dones=None
-                )  # type: ignore
+                )
 
             experience.append([
                 observations_tensor.squeeze(0),
@@ -340,7 +335,7 @@ class RecurrentPPO:
         for b_indices in indices:
             for mb_indices in b_indices:
                 # Full forward pass with current network parameters
-                new_logits, new_values, _ = self.network.get_logits_values_and_hx(observations, hx, prev_dones)  # type: ignore
+                new_logits, new_values, _ = self.network.get_logits_values_and_hx(observations, hx, prev_dones)
                 
                 # Flatten and slice minibatch indices
                 new_logits, new_values = [flatten(x) for x in [new_logits, new_values]]
