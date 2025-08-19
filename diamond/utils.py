@@ -12,7 +12,6 @@ from contextlib import contextmanager
 from typing import Any
 
 import numpy as np
-import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 import plotly.io as pio
 import torch
@@ -265,7 +264,7 @@ pio.templates["umbra"] = go.layout.Template(
         },
         "hovermode": "x unified",
     }
-)
+)  # type: ignore
 
 
 class Logger:
@@ -513,20 +512,33 @@ class Timer:
         sorted_names = [names[i] for i in sorted_indices]
         sorted_total_times = [total_times[i] for i in sorted_indices]
 
-        # Create bar plot
-        plt.figure(figsize=(10, 6))
-        bars = plt.bar(sorted_names, sorted_total_times, color='#636EFA')
-
-        # Add text labels above the bars
-        for bar, total_time in zip(bars, sorted_total_times):
-            plt.text(bar.get_x() + bar.get_width() / 2, bar.get_height(), 
-                     f'{total_time:.4f}s', ha='center', va='bottom', fontsize=8)
-
-        plt.ylabel('Total Time (seconds)')
-        plt.title('Code Timings')
-        plt.xticks(rotation=45, ha='right')
-        plt.tight_layout()
-        plt.show()
+        # Create Plotly bar plot
+        fig = go.Figure()
+        
+        fig.add_trace(
+            go.Bar(
+                x=sorted_names,
+                y=sorted_total_times,
+                text=[f'{t:.4f}s' for t in sorted_total_times],
+                textposition='outside',
+                textfont=dict(size=12, color='#d0d0d0'),
+                marker=dict(color='#636EFA'),
+                showlegend=False,
+            )
+        )
+        
+        fig.update_layout(
+            template="umbra",
+            title="Code Timings",
+            height=420,
+            width=960,
+            margin=dict(l=40, r=20, t=60, b=40),
+            xaxis_title=None,
+            yaxis_title="Total Time (seconds)",
+            xaxis=dict(tickangle=-45),
+        )
+        
+        fig.show()
 
 
 class Checkpointer:
