@@ -524,17 +524,19 @@ class Timer:
                 textfont=dict(size=12, color='#d0d0d0'),
                 marker=dict(color='#636EFA'),
                 showlegend=False,
+                hovertemplate='%{y:.6f}s<extra></extra>',
             )
         )
         
         fig.update_layout(
             template="umbra",
             title="Code Timings",
-            height=420,
+            height=480,
             width=960,
-            margin=dict(l=40, r=20, t=60, b=40),
+            margin=dict(l=80, r=20, t=60, b=120),
             xaxis_title=None,
             yaxis_title="Total Time (seconds)",
+            yaxis=dict(title_standoff=20),
             xaxis=dict(tickangle=-45),
         )
         
