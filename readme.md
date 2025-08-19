@@ -86,36 +86,29 @@ agent.train()
 
 ## Custom Networks
 
-Provide your own network architecture by implementing the required interface:
+Provide your own network architecture by passing a network class:
 
 ```python
-class AtariNet(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.base = NatureCNN()
-        self.actor_head = nn.LazyLinear(6)
-        self.critic_head = nn.LazyLinear(1)
 
-    def actor(self, x):
-        """Returns action logits/parameters"""
-        x = self.base(x)
-        return self.actor_head(x)
+class CustomNetwork(nn.Module):
+    actor_out_layer: nn.Linear  # optional, will scale weight variance down
 
-    def critic(self, x):
-        """Returns value estimates"""
-        x = self.base(x)
-        return self.critic_head(x).squeeze(-1)
+    def __init__(self, observation_space: Space, action_space: Space, cfg: PPOConfig) -> None: ...
+    
+    def get_actions(self, observations: np.ndarray, device: torch.device) -> np.ndarray: ...
 
-    def forward(self, x):
-        """Returns both actor and critic outputs"""
-        x = self.base(x)
-        return self.actor_head(x), self.critic_head(x).squeeze(-1)
+    def get_values(self, observations: torch.Tensor) -> torch.Tensor: ...
+    
+    def get_logits_and_values(self, observations: torch.Tensor) -> torch.Tensor: ...
 
-agent = PPO(lambda: gym.make("ALE/Pong-v5"), custom_network=AtariNet())
-agent.train()
+# Pass custom network to PPO constructor
+agent = PPO(
+    env_fn=lambda: gym.make("CartPole-v1"),
+    network_cls=CustomNetwork
+)
 ```
 
-Custom networks must implement all three methods (`actor`, `critic`, `forward`) matching the interface used by the default network.
+Note that PPO, ContinuousPPO and RecurrentPPO networks have different signatures, be sure to match the network method signatures of the respective algorithm.
 
 ---
 
