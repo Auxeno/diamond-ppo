@@ -86,7 +86,7 @@ agent.train()
 
 ## Custom Networks
 
-Provide your own network architecture by passing a network class:
+Provide your own network architecture by passing an `nn.Module` network class that has the following attributes and signatures:
 
 ```python
 
@@ -108,7 +108,7 @@ agent = PPO(
 )
 ```
 
-Note that PPO, ContinuousPPO and RecurrentPPO networks have different signatures, be sure to match the network method signatures of the respective algorithm.
+Note that PPO, ContinuousPPO and RecurrentPPO network methods have different signatures, be sure to match the network method signatures of the respective algorithm.
 
 ---
 
