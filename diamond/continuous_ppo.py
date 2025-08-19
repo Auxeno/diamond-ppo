@@ -1,7 +1,7 @@
 import time
 from dataclasses import dataclass
 from math import sqrt
-from typing import Callable
+from typing import Callable, Any
 
 import gymnasium as gym
 import numpy as np
@@ -52,11 +52,13 @@ class ContinuousActorCriticNetwork(nn.Module):
         self, 
         observation_space: Space, 
         action_space: Space, 
-        hidden_dim: int
+        cfg: ContinuousPPOConfig
     ) -> None:
         super().__init__()
         assert isinstance(observation_space, Box), "Only Box obs spaces are supported."
         assert isinstance(action_space, Box), "Only Box action spaces are supported."
+        
+        hidden_dim = cfg.network_hidden_dim
 
         self.base = nn.Sequential(
             nn.Linear(int(np.prod(observation_space.shape)),  hidden_dim),
@@ -123,7 +125,8 @@ class ContinuousPPO:
     def __init__(
         self,
         env_fn: Callable[[], gym.Env],
-        cfg: ContinuousPPOConfig = ContinuousPPOConfig()
+        cfg: ContinuousPPOConfig = ContinuousPPOConfig(),
+        network_cls: Any = ContinuousActorCriticNetwork
     ) -> None:
         self.device = torch.device("cuda" if cfg.cuda and torch.cuda.is_available() else "cpu")
 
@@ -137,11 +140,8 @@ class ContinuousPPO:
             autoreset_mode="Disabled"
         )
 
-        self.network = ContinuousActorCriticNetwork(
-            self.envs.single_observation_space,
-            self.envs.single_action_space,
-            hidden_dim=cfg.network_hidden_dim
-        ).to(self.device)
+        observation_space, action_space = self.envs.single_observation_space, self.envs.single_action_space
+        self.network = network_cls(observation_space, action_space, cfg=cfg).to(self.device)
 
         network_parameter_init_(self.network, gain=sqrt(2.0))
 
